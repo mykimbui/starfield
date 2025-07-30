@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warp Speed Starfield</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 14px;
+            z-index: 100;
+        }
+        
+        .controls label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .controls input[type="range"] {
+            width: 150px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label>Speed: <input type="range" id="speedSlider" min="0.1" max="1.5" value="0.3" step="0.1"></label>
+        <label>Stars: <input type="range" id="starSlider" min="500" max="5000" value="2000" step="100"></label>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let stars = [];
+        let starGeometry, starMaterial, starField;
+        let speed = 0.3;
+        let numStars = 2000;
+        
+        // Star class to track position and previous position
+        class Star {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // Spawn stars in a cylindrical volume ahead of camera
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * 50;
+                this.x = Math.cos(angle) * radius;
+                this.y = Math.sin(angle) * radius;
+                this.z = -Math.random() * 200 - 50; // Start far ahead
+                
+                this.prevX = this.x;
+                this.prevY = this.y;
+                this.prevZ = this.z;
+            }
+            
+            update() {
+                this.prevX = this.x;
+                this.prevY = this.y;
+                this.prevZ = this.z;
+                
+                // Move toward camera (increase z)
+                this.z += speed * 0.8;
+                
+                // Expand outward from center as they get closer
+                const progress = (this.z + 50) / 200;
+                if (progress > 0) {
+                    const expansion = progress * progress * 3;
+                    this.x *= (1 + expansion * 0.02);
+                    this.y *= (1 + expansion * 0.02);
+                }
+                
+                // Reset if passed camera
+                if (this.z > 10) {
+                    this.reset();
+                }
+                
+                // Create artificial trail length for better visibility
+                const direction = Math.sqrt(this.x * this.x + this.y * this.y);
+                if (direction > 0) {
+                    const trailLength = 2 + speed * 4; // Shorter trail length
+                    const normalizedX = this.x / direction;
+                    const normalizedY = this.y / direction;
+                    
+                    this.prevX = this.x - normalizedX * trailLength;
+                    this.prevY = this.y - normalizedY * trailLength;
+                    this.prevZ = this.z - trailLength * 0.3;
+                }
+            }
+        }
+        
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000);
+            document.body.appendChild(renderer.domElement);
+            
+            camera.position.z = 0;
+            
+            createStarField();
+            setupControls();
+            animate();
+        }
+        
+        function createStarField() {
+            // Create star instances
+            stars = [];
+            for (let i = 0; i < numStars; i++) {
+                stars.push(new Star());
+            }
+            
+            // Create geometry for lines (each star will be a line from current to previous position)
+            starGeometry = new THREE.BufferGeometry();
+            
+            // Each star needs 2 vertices (current and previous position)
+            const positions = new Float32Array(numStars * 6); // 2 vertices * 3 coordinates
+            const colors = new Float32Array(numStars * 6); // 2 vertices * 3 color components
+            
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            // Material for the star streaks
+            starMaterial = new THREE.LineBasicMaterial({ 
+                vertexColors: true,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                linewidth: 12
+            });
+            
+            // Create line segments
+            starField = new THREE.LineSegments(starGeometry, starMaterial);
+            scene.add(starField);
+            
+            updateStarField();
+        }
+        
+        function updateStarField() {
+            const positions = starGeometry.attributes.position.array;
+            const colors = starGeometry.attributes.color.array;
+            
+            for (let i = 0; i < stars.length; i++) {
+                const star = stars[i];
+                star.update();
+                
+                const i6 = i * 6; // 6 values per star (2 vertices * 3 coordinates)
+                
+                // Previous position (start of line)
+                positions[i6] = star.prevX;
+                positions[i6 + 1] = star.prevY;
+                positions[i6 + 2] = star.prevZ;
+                
+                // Current position (end of line)
+                positions[i6 + 3] = star.x;
+                positions[i6 + 4] = star.y;
+                positions[i6 + 5] = star.z;
+                
+                // Calculate brightness based on distance and speed
+                const distance = Math.sqrt(star.x * star.x + star.y * star.y);
+                
+                // Brighter as stars come closer to camera (depth)
+                const depthFactor = Math.min(1, (star.z + 50) / 100);
+                
+                // Less bright only near the center point (creates dark center)
+                const centerFade = Math.min(1, distance / 20); // Fade out near center
+                
+                const brightness = depthFactor * centerFade;
+                const alpha = Math.max(0.05, brightness);
+                
+                // Set colors for both vertices
+                colors[i6] = alpha * 0.7;     // R (dimmer at start)
+                colors[i6 + 1] = alpha * 0.7; // G
+                colors[i6 + 2] = alpha * 0.7; // B
+                
+                colors[i6 + 3] = alpha;       // R (brighter at end)
+                colors[i6 + 4] = alpha;       // G
+                colors[i6 + 5] = alpha;       // B
+            }
+            
+            starGeometry.attributes.position.needsUpdate = true;
+            starGeometry.attributes.color.needsUpdate = true;
+        }
+        
+        function setupControls() {
+            const speedSlider = document.getElementById('speedSlider');
+            const starSlider = document.getElementById('starSlider');
+            
+            speedSlider.addEventListener('input', (e) => {
+                speed = parseFloat(e.target.value);
+            });
+            
+            starSlider.addEventListener('input', (e) => {
+                const newNumStars = parseInt(e.target.value);
+                if (newNumStars !== numStars) {
+                    numStars = newNumStars;
+                    scene.remove(starField);
+                    createStarField();
+                }
+            });
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            updateStarField();
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Start the experience
+        init();
+    </script>
+</body>
+</html>
