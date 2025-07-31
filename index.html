@@ -38,10 +38,11 @@
     </style>
 </head>
 <body>
-    <div class="controls">
-        <label>Speed: <input type="range" id="speedSlider" min="0.1" max="1.5" value="0.3" step="0.1"></label>
-        <label>Stars: <input type="range" id="starSlider" min="500" max="5000" value="2000" step="100"></label>
-    </div>
+            <div class="controls">
+            <label>Speed: <input type="range" id="speedSlider" min="0.1" max="1.5" value="0.3" step="0.1"></label>
+            <label>Stars: <input type="range" id="starSlider" min="500" max="5000" value="2000" step="100"></label>
+            <label>Influence Radius: <input type="range" id="radiusSlider" min="50" max="200" value="100" step="10"></label>
+        </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
@@ -50,11 +51,32 @@
         let starGeometry, starMaterial, starField;
         let speed = 0.3;
         let numStars = 2000;
+        let mouseX = 0, mouseY = 0;
+        let isHovering = false;
+        let influenceRadius = 100; // Configurable influence radius
+        let attractionForce = 0.5; // Force strength for attraction
+        let mouseVelocity = { x: 0, y: 0 };
+        let lastMouseX = 0, lastMouseY = 0;
+        let mouseMoving = false;
+        let mouseStopTimer = null;
+        let mouseWorldPosition = new THREE.Vector3(); // 3D world position of mouse
+        let forceDecayRate = 0.95; // How quickly forces decay when mouse stops
         
         // Star class to track position and previous position
         class Star {
             constructor() {
                 this.reset();
+                this.originalX = 0;
+                this.originalY = 0;
+                this.originalZ = 0;
+                this.velocityX = 0;
+                this.velocityY = 0;
+                this.velocityZ = 0;
+                this.attractionForceX = 0;
+                this.attractionForceY = 0;
+                this.attractionForceZ = 0;
+                this.isInfluenced = false;
+                this.influenceFactor = 0;
             }
             
             reset() {
@@ -68,6 +90,18 @@
                 this.prevX = this.x;
                 this.prevY = this.y;
                 this.prevZ = this.z;
+                
+                this.originalX = this.x;
+                this.originalY = this.y;
+                this.originalZ = this.z;
+                
+                // Reset velocities and forces
+                this.velocityX = 0;
+                this.velocityY = 0;
+                this.velocityZ = 0;
+                this.attractionForceX = 0;
+                this.attractionForceY = 0;
+                this.attractionForceZ = 0;
             }
             
             update() {
@@ -75,15 +109,30 @@
                 this.prevY = this.y;
                 this.prevZ = this.z;
                 
-                // Move toward camera (increase z)
-                this.z += speed * 0.8;
+                // Calculate normal warp motion (forward toward camera)
+                const warpSpeedZ = speed * 0.8;
                 
-                // Expand outward from center as they get closer
+                // Apply attraction forces if influenced
+                if (this.isInfluenced) {
+                    this.applyAttractionForce();
+                }
+                
+                // Apply velocity to position (physics-based movement)
+                this.x += this.velocityX;
+                this.y += this.velocityY;
+                this.z += this.velocityZ + warpSpeedZ; // Combine attraction with warp motion
+                
+                // Expand outward from center as they get closer (original warp effect)
                 const progress = (this.z + 50) / 200;
                 if (progress > 0) {
                     const expansion = progress * progress * 3;
                     this.x *= (1 + expansion * 0.02);
                     this.y *= (1 + expansion * 0.02);
+                }
+                
+                // Decay forces when mouse stops moving
+                if (!mouseMoving && this.isInfluenced) {
+                    this.decayForces();
                 }
                 
                 // Reset if passed camera
@@ -101,6 +150,60 @@
                     this.prevX = this.x - normalizedX * trailLength;
                     this.prevY = this.y - normalizedY * trailLength;
                     this.prevZ = this.z - trailLength * 0.3;
+                }
+            }
+            
+            applyAttractionForce() {
+                // Calculate 3D distance to mouse
+                const distanceToMouse = Math.sqrt(
+                    Math.pow(this.x - mouseWorldPosition.x, 2) + 
+                    Math.pow(this.y - mouseWorldPosition.y, 2) +
+                    Math.pow(this.z - mouseWorldPosition.z, 2)
+                );
+                
+                // Calculate attraction force based on distance (inverse square law)
+                const forceMagnitude = attractionForce / (distanceToMouse * distanceToMouse + 1);
+                
+                // Calculate direction vector from star to mouse
+                const directionX = mouseWorldPosition.x - this.x;
+                const directionY = mouseWorldPosition.y - this.y;
+                const directionZ = mouseWorldPosition.z - this.z;
+                
+                // Normalize direction vector
+                const directionLength = Math.sqrt(directionX * directionX + directionY * directionY + directionZ * directionZ);
+                if (directionLength > 0) {
+                    const normalizedX = directionX / directionLength;
+                    const normalizedY = directionY / directionLength;
+                    const normalizedZ = directionZ / directionLength;
+                    
+                    // Apply force to velocity (F = ma, simplified as F = v)
+                    this.velocityX += normalizedX * forceMagnitude * this.influenceFactor;
+                    this.velocityY += normalizedY * forceMagnitude * this.influenceFactor;
+                    this.velocityZ += normalizedZ * forceMagnitude * this.influenceFactor;
+                }
+                
+                // Apply damping to prevent excessive speed
+                const damping = 0.98;
+                this.velocityX *= damping;
+                this.velocityY *= damping;
+                this.velocityZ *= damping;
+            }
+            
+            decayForces() {
+                // Gradually reduce attraction forces
+                this.attractionForceX *= forceDecayRate;
+                this.attractionForceY *= forceDecayRate;
+                this.attractionForceZ *= forceDecayRate;
+                
+                // Decay velocities back toward normal warp motion
+                this.velocityX *= forceDecayRate;
+                this.velocityY *= forceDecayRate;
+                this.velocityZ *= forceDecayRate;
+                
+                // Reset influence when forces are small enough
+                if (Math.abs(this.velocityX) < 0.01 && Math.abs(this.velocityY) < 0.01 && Math.abs(this.velocityZ) < 0.01) {
+                    this.isInfluenced = false;
+                    this.influenceFactor = 0;
                 }
             }
         }
@@ -157,6 +260,9 @@
             const positions = starGeometry.attributes.position.array;
             const colors = starGeometry.attributes.color.array;
             
+            // Update mouse influence on stars
+            updateMouseInfluence();
+            
             for (let i = 0; i < stars.length; i++) {
                 const star = stars[i];
                 star.update();
@@ -199,9 +305,43 @@
             starGeometry.attributes.color.needsUpdate = true;
         }
         
+        function updateMouseInfluence() {
+            // Convert mouse screen coordinates to 3D world coordinates
+            const mouseScreenX = (mouseX / window.innerWidth) * 2 - 1;
+            const mouseScreenY = -(mouseY / window.innerHeight) * 2 + 1;
+            
+            // Create a ray from camera through mouse position
+            const mouseVector = new THREE.Vector3(mouseScreenX, mouseScreenY, 0.5);
+            mouseVector.unproject(camera);
+            
+            // Set mouse world position at a fixed distance from camera
+            const mouseDistance = 50; // Distance from camera
+            mouseWorldPosition.copy(mouseVector).normalize().multiplyScalar(mouseDistance);
+            
+            // Check all stars within influence radius (no fixed percentage limit)
+            stars.forEach(star => {
+                const distanceToMouse = Math.sqrt(
+                    Math.pow(star.x - mouseWorldPosition.x, 2) + 
+                    Math.pow(star.y - mouseWorldPosition.y, 2) +
+                    Math.pow(star.z - mouseWorldPosition.z, 2)
+                );
+                
+                if (distanceToMouse <= influenceRadius) {
+                    star.isInfluenced = true;
+                    // Calculate influence factor based on distance (closer = stronger)
+                    star.influenceFactor = Math.max(0, 1 - (distanceToMouse / influenceRadius));
+                } else {
+                    // Star is outside influence radius
+                    star.isInfluenced = false;
+                    star.influenceFactor = 0;
+                }
+            });
+        }
+        
         function setupControls() {
             const speedSlider = document.getElementById('speedSlider');
             const starSlider = document.getElementById('starSlider');
+            const radiusSlider = document.getElementById('radiusSlider');
             
             speedSlider.addEventListener('input', (e) => {
                 speed = parseFloat(e.target.value);
@@ -214,6 +354,10 @@
                     scene.remove(starField);
                     createStarField();
                 }
+            });
+            
+            radiusSlider.addEventListener('input', (e) => {
+                influenceRadius = parseFloat(e.target.value);
             });
         }
         
@@ -232,6 +376,49 @@
         
         // Start the experience
         init();
+        
+        // Mouse event listeners for star clustering
+        renderer.domElement.addEventListener('mouseenter', () => {
+            isHovering = true;
+        });
+        
+        renderer.domElement.addEventListener('mouseleave', () => {
+            isHovering = false;
+            mouseMoving = false;
+            // Reset all stars to normal trajectory
+            stars.forEach(star => {
+                star.isInfluenced = false;
+                star.influenceFactor = 0;
+                star.velocityX = 0;
+                star.velocityY = 0;
+                star.velocityZ = 0;
+            });
+        });
+        
+        renderer.domElement.addEventListener('mousemove', (e) => {
+            // Calculate mouse velocity
+            mouseVelocity.x = e.clientX - lastMouseX;
+            mouseVelocity.y = e.clientY - lastMouseY;
+            
+            // Update mouse position
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            
+            // Set mouse as moving
+            mouseMoving = true;
+            
+            // Clear existing timer
+            if (mouseStopTimer) {
+                clearTimeout(mouseStopTimer);
+            }
+            
+            // Set timer to detect when mouse stops moving
+            mouseStopTimer = setTimeout(() => {
+                mouseMoving = false;
+            }, 100); // 100ms delay before considering mouse stopped
+        });
     </script>
 </body>
 </html>
