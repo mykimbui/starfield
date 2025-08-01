@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Dot Grid</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #080F1E;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            cursor: none;
+        }
+        .info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">Move your mouse through the starfield</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        
+        if (!gl) {
+            alert('WebGL not supported');
+        }
+
+        // Simple vertex shader
+        const vertexShaderSource = `
+            attribute vec2 a_position;
+            attribute float a_size;
+            attribute float a_twinklePhase;
+            attribute float a_twinkleSpeed;
+            uniform vec2 u_resolution;
+            uniform vec2 u_mouse;
+            uniform float u_time;
+            
+            varying float v_influence;
+            varying float v_baseSize;
+            varying float v_twinkle;
+            
+            void main() {
+                // Convert to clip space
+                vec2 clipSpace = ((a_position / u_resolution) * 2.0 - 1.0) * vec2(1, -1);
+                
+                // Calculate mouse influence with larger radius
+                vec2 mouseClip = ((u_mouse / u_resolution) * 2.0 - 1.0) * vec2(1, -1);
+                float dist = distance(clipSpace, mouseClip);
+                v_influence = smoothstep(0.6, 0.0, dist); // Larger influence radius
+                v_baseSize = a_size;
+                
+                // Calculate twinkling effect
+                float twinkleTime = u_time * a_twinkleSpeed + a_twinklePhase;
+                v_twinkle = 0.6 + 0.4 * sin(twinkleTime);
+                
+                gl_Position = vec4(clipSpace, 0.0, 1.0);
+                gl_PointSize = a_size + v_influence * 6.0;
+            }
+        `;
+
+        // Simple fragment shader
+        const fragmentShaderSource = `
+            precision mediump float;
+            varying float v_influence;
+            varying float v_baseSize;
+            varying float v_twinkle;
+            
+            void main() {
+                vec2 coord = gl_PointCoord - 0.5;
+                float dist = length(coord);
+                
+                if (dist > 0.5) discard;
+                
+                // Star-like brightness variation with twinkling
+                float brightness = 0.3 + (v_baseSize - 1.0) * 0.2;
+                float alpha = (1.0 - dist * 2.0) * (brightness + v_influence * 0.6) * v_twinkle;
+                
+                // Color variation - cooler stars are bluer, warmer are more white
+                float temp = v_baseSize / 4.0;
+                vec3 color = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.9, 0.7), temp);
+                
+                gl_FragColor = vec4(color, alpha);
+            }
+        `;
+
+        // Create shader
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader error:', gl.getShaderInfoLog(shader));
+                return null;
+            }
+            return shader;
+        }
+
+        // Create program
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('Program error:', gl.getProgramInfoLog(program));
+                return null;
+            }
+            return program;
+        }
+
+        // Setup WebGL
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        const program = createProgram(gl, vertexShader, fragmentShader);
+
+        // Get locations
+        const positionLocation = gl.getAttribLocation(program, 'a_position');
+        const sizeLocation = gl.getAttribLocation(program, 'a_size');
+        const twinklePhaseLocation = gl.getAttribLocation(program, 'a_twinklePhase');
+        const twinkleSpeedLocation = gl.getAttribLocation(program, 'a_twinkleSpeed');
+        const resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+        const mouseLocation = gl.getUniformLocation(program, 'u_mouse');
+        const timeLocation = gl.getUniformLocation(program, 'u_time');
+
+        // Create grid data
+        let positions = [];
+        let originalPositions = [];
+        let sizes = [];
+        let velocities = [];
+        let twinklePhases = [];
+        let twinkleSpeeds = [];
+
+        function createGrid() {
+            positions = [];
+            originalPositions = [];
+            sizes = [];
+            velocities = [];
+            twinklePhases = [];
+            twinkleSpeeds = [];
+            
+            const padding = 50;
+            const numStars = Math.floor((canvas.width * canvas.height) / 3000); // Star density
+            
+            for (let i = 0; i < numStars; i++) {
+                const posX = padding + Math.random() * (canvas.width - padding * 2);
+                const posY = padding + Math.random() * (canvas.height - padding * 2);
+                
+                // Random star sizes (like real stars have different magnitudes)
+                const starSize = 1.0 + Math.random() * 3.0 + Math.pow(Math.random(), 3) * 4.0;
+                
+                positions.push(posX, posY);
+                originalPositions.push(posX, posY);
+                sizes.push(starSize);
+                velocities.push(0, 0);
+                
+                // Random twinkling properties
+                twinklePhases.push(Math.random() * Math.PI * 2); // Random starting phase
+                twinkleSpeeds.push(Math.random() * 2 + 0.5); // Random speed (0.5 to 2.5)
+            }
+        }
+
+        // Resize handler
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            createGrid();
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Create buffers
+        const positionBuffer = gl.createBuffer();
+        const sizeBuffer = gl.createBuffer();
+        const twinklePhaseBuffer = gl.createBuffer();
+        const twinkleSpeedBuffer = gl.createBuffer();
+
+        // Mouse tracking
+        let mouseX = canvas.width / 2;
+        let mouseY = canvas.height / 2;
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+
+        // Animation loop
+        function animate() {
+            // Update physics
+            for (let i = 0; i < positions.length; i += 2) {
+                const origX = originalPositions[i];
+                const origY = originalPositions[i + 1];
+                let currentX = positions[i];
+                let currentY = positions[i + 1];
+                
+                // Distance to mouse from current position
+                const mouseDistX = mouseX - currentX;
+                const mouseDistY = mouseY - currentY;
+                const mouseDist = Math.sqrt(mouseDistX * mouseDistX + mouseDistY * mouseDistY);
+                
+                // Distance to mouse from original position
+                const origMouseDistX = mouseX - origX;
+                const origMouseDistY = mouseY - origY;
+                const origMouseDist = Math.sqrt(origMouseDistX * origMouseDistX + origMouseDistY * origMouseDistY);
+                
+                // Influence based on original distance to mouse
+                const maxDist = 150;
+                const influence = Math.max(0, 1 - Math.pow(origMouseDist / maxDist, 0.6));
+                
+                if (influence > 0.1) {
+                    // Strong direct attraction to mouse position
+                    const attractionForce = influence * influence * 0.4;
+                    
+                    if (mouseDist > 0) {
+                        // Normalize direction to mouse
+                        const dirX = mouseDistX / mouseDist;
+                        const dirY = mouseDistY / mouseDist;
+                        
+                        // Apply force directly towards mouse
+                        velocities[i] += dirX * attractionForce;
+                        velocities[i + 1] += dirY * attractionForce;
+                    }
+                    
+                    // Additional magnetic pull for very close stars
+                    if (mouseDist < 50) {
+                        const magneticPull = (50 - mouseDist) / 50 * 0.3;
+                        velocities[i] += mouseDistX * magneticPull * 0.1;
+                        velocities[i + 1] += mouseDistY * magneticPull * 0.1;
+                    }
+                } else {
+                    // Return to original position when outside influence
+                    const returnForce = 0.12;
+                    velocities[i] += (origX - currentX) * returnForce;
+                    velocities[i + 1] += (origY - currentY) * returnForce;
+                }
+                
+                // Apply damping
+                velocities[i] *= 0.88;
+                velocities[i + 1] *= 0.88;
+                
+                // Update position
+                positions[i] += velocities[i];
+                positions[i + 1] += velocities[i + 1];
+            }
+
+            // Clear
+            gl.clearColor(0.031, 0.059, 0.118, 1); // #080F1E
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // Use program
+            gl.useProgram(program);
+
+            // Update buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
+
+            // Setup position attribute
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+            // Setup size attribute
+            gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sizes), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(sizeLocation);
+            gl.vertexAttribPointer(sizeLocation, 1, gl.FLOAT, false, 0, 0);
+
+            // Setup twinkle phase attribute
+            gl.bindBuffer(gl.ARRAY_BUFFER, twinklePhaseBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(twinklePhases), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(twinklePhaseLocation);
+            gl.vertexAttribPointer(twinklePhaseLocation, 1, gl.FLOAT, false, 0, 0);
+
+            // Setup twinkle speed attribute
+            gl.bindBuffer(gl.ARRAY_BUFFER, twinkleSpeedBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(twinkleSpeeds), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(twinkleSpeedLocation);
+            gl.vertexAttribPointer(twinkleSpeedLocation, 1, gl.FLOAT, false, 0, 0);
+
+            // Set uniforms
+            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+            gl.uniform2f(mouseLocation, mouseX, mouseY);
+            gl.uniform1f(timeLocation, Date.now() * 0.001);
+
+            // Enable blending
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+            // Draw
+            gl.drawArrays(gl.POINTS, 0, positions.length / 2);
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start
+        animate();
+    </script>
+</body>
+</html>
