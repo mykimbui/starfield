@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Star Field</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: black;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            cursor: grab;
+        }
+        
+        canvas:active {
+            cursor: grabbing;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .controls label {
+            display: block;
+            margin: 10px 0 5px 0;
+        }
+        
+        .controls input[type="range"] {
+            width: 150px;
+        }
+        
+        .controls input[type="checkbox"] {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="starfield"></canvas>
+    
+    <div class="controls">
+        <label>Speed: <input type="range" id="speedSlider" min="0.1" max="5" step="0.1" value="1"></label>
+        <label>Star Count: <input type="range" id="countSlider" min="500" max="5000" step="100" value="2000"></label>
+        <label><input type="checkbox" id="colorToggle">Colored Stars</label>
+        <label><input type="checkbox" id="trailsToggle">Star Trails</label>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('starfield');
+        const gl = canvas.getContext('webgl');
+        
+        if (!gl) {
+            alert('WebGL not supported!');
+        }
+        
+        // Resize canvas to fill window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Vertex shader source
+        const vertexShaderSource = `
+            attribute vec3 a_position;
+            attribute float a_size;
+            attribute vec3 a_color;
+            attribute float a_twinkle;
+            
+            uniform mat4 u_projectionMatrix;
+            uniform mat4 u_viewMatrix;
+            uniform float u_time;
+            
+            varying vec3 v_color;
+            varying float v_alpha;
+            varying float v_twinkle;
+            
+            void main() {
+                gl_Position = u_projectionMatrix * u_viewMatrix * vec4(a_position, 1.0);
+                
+                // Calculate point size based on distance
+                float distance = length(a_position);
+                gl_PointSize = a_size * (200.0 / distance);
+                
+                // Twinkling effect
+                float twinkle = 0.7 + 0.3 * sin(u_time * a_twinkle + a_position.x + a_position.y);
+                
+                v_color = a_color;
+                v_alpha = min(1.0, a_size / 3.0) * twinkle;
+                v_twinkle = twinkle;
+            }
+        `;
+        
+        // Fragment shader source
+        const fragmentShaderSource = `
+            precision mediump float;
+            
+            varying vec3 v_color;
+            varying float v_alpha;
+            
+            void main() {
+                vec2 center = gl_PointCoord - vec2(0.5);
+                float dist = length(center);
+                
+                if (dist > 0.5) discard;
+                
+                // Create star spikes
+                float angle = atan(center.y, center.x);
+                float spike1 = abs(cos(angle * 2.0)); // 4-pointed star
+                float spike2 = abs(cos(angle * 3.0)); // 6-pointed overlay
+                float spikes = max(spike1 * 0.7, spike2 * 0.3);
+                
+                // Bright center with gradual falloff
+                float centerGlow = 1.0 - smoothstep(0.0, 0.3, dist);
+                float outerGlow = 1.0 - smoothstep(0.1, 0.5, dist);
+                
+                // Combine center glow with spikes
+                float brightness = centerGlow + outerGlow * spikes * 0.6;
+                
+                // Add some sparkle variation
+                float sparkle = sin(dist * 20.0) * 0.1 + 0.9;
+                
+                float alpha = brightness * v_alpha * sparkle;
+                gl_FragColor = vec4(v_color * (0.8 + brightness * 0.4), alpha);
+            }
+        `;
+        
+        // Create shader
+        function createShader(type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+        
+        // Create program
+        function createProgram(vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('Program link error:', gl.getProgramInfoLog(program));
+                gl.deleteProgram(program);
+                return null;
+            }
+            
+            return program;
+        }
+        
+        // Create shaders and program
+        const vertexShader = createShader(gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+        const program = createProgram(vertexShader, fragmentShader);
+        
+        // Get attribute and uniform locations
+        const positionLocation = gl.getAttribLocation(program, 'a_position');
+        const sizeLocation = gl.getAttribLocation(program, 'a_size');
+        const colorLocation = gl.getAttribLocation(program, 'a_color');
+        const twinkleLocation = gl.getAttribLocation(program, 'a_twinkle');
+        const projectionMatrixLocation = gl.getUniformLocation(program, 'u_projectionMatrix');
+        const viewMatrixLocation = gl.getUniformLocation(program, 'u_viewMatrix');
+        const timeLocation = gl.getUniformLocation(program, 'u_time');
+        
+        // Star field parameters
+        let starCount = 1000;
+        let speed = 0.09;
+        let useColors = false;
+        let useTrails = false;
+        
+        // Mouse interaction
+        let mouseX = 0;
+        let mouseY = 0;
+        let mouseAttraction = 0.8;
+        let mouseTrail = []; // Store recent mouse positions
+        let maxTrailLength = 10;
+        
+        // Star data arrays
+        let positions = [];
+        let sizes = [];
+        let colors = [];
+        let velocities = [];
+        let twinkles = [];
+        let mouseAffected = []; // Which stars are affected by mouse
+        let packStars = []; // Which stars follow in packs
+        let packTargets = []; // Target positions for pack stars
+        
+        // Initialize stars
+        function initStars() {
+            positions = [];
+            sizes = [];
+            colors = [];
+            velocities = [];
+            twinkles = [];
+            mouseAffected = [];
+            packStars = [];
+            packTargets = [];
+            
+            for (let i = 0; i < starCount; i++) {
+                // Random position in a box around the camera
+                positions.push(
+                    (Math.random() - 0.5) * 200, // x
+                    (Math.random() - 0.5) * 200, // y
+                    -(Math.random() * 100 + 10)  // z (behind camera)
+                );
+                
+                // Varied star sizes - some big bright stars, mostly smaller ones
+                const sizeRandom = Math.random();
+                let size;
+                if (sizeRandom < 0.1) {
+                    size = Math.random() * 8 + 6; // Big bright stars
+                } else if (sizeRandom < 0.3) {
+                    size = Math.random() * 4 + 3; // Medium stars
+                } else {
+                    size = Math.random() * 2 + 1; // Small stars
+                }
+                sizes.push(size);
+                
+                // Random twinkle rate
+                twinkles.push(Math.random() * 3 + 1);
+                
+                // Determine star behavior types
+                const behaviorRandom = Math.random();
+                if (behaviorRandom < 0.15) {
+                    // 15% pack followers - these form clusters that follow mouse
+                    packStars.push(true);
+                    mouseAffected.push(false);
+                    packTargets.push({
+                        x: positions[i * 3],
+                        y: positions[i * 3 + 1],
+                        z: positions[i * 3 + 2],
+                        trailIndex: Math.floor(Math.random() * maxTrailLength), // Different trail positions
+                        packId: Math.floor(Math.random() * 3) // 3 different packs
+                    });
+                } else if (behaviorRandom < 0.3) {
+                    // 15% attracted to mouse but don't follow
+                    mouseAffected.push(true);
+                    packStars.push(false);
+                    packTargets.push(null);
+                } else {
+                    // 70% normal stars
+                    mouseAffected.push(false);
+                    packStars.push(false);
+                    packTargets.push(null);
+                }
+                
+                // Random color
+                if (useColors) {
+                    const hue = Math.random() * 6.28;
+                    colors.push(
+                        0.8 + 0.2 * Math.cos(hue),
+                        0.8 + 0.2 * Math.cos(hue + 2.09),
+                        0.8 + 0.2 * Math.cos(hue + 4.18)
+                    );
+                } else {
+                    // White/blue-white stars with slight temperature variation
+                    const temp = Math.random();
+                    if (temp < 0.1) {
+                        colors.push(1.0, 0.9, 0.8); // Warm stars
+                    } else if (temp < 0.8) {
+                        colors.push(1.0, 1.0, 1.0); // White stars
+                    } else {
+                        colors.push(0.9, 0.95, 1.0); // Blue-white stars
+                    }
+                }
+                
+                // Random velocity (mostly forward)
+                velocities.push(
+                    (Math.random() - 0.5) * 0.2,
+                    (Math.random() - 0.5) * 0.2,
+                    Math.random() * 3 + 2
+                );
+            }
+        }
+        
+        // Create buffers
+        const positionBuffer = gl.createBuffer();
+        const sizeBuffer = gl.createBuffer();
+        const colorBuffer = gl.createBuffer();
+        const twinkleBuffer = gl.createBuffer();
+        
+        // Matrix helper functions
+        function createPerspectiveMatrix(fov, aspect, near, far) {
+            const f = Math.tan(Math.PI * 0.5 - 0.5 * fov);
+            const rangeInv = 1.0 / (near - far);
+            
+            return [
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (near + far) * rangeInv, -1,
+                0, 0, near * far * rangeInv * 2, 0
+            ];
+        }
+        
+        function createIdentityMatrix() {
+            return [
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            ];
+        }
+        
+        // Update stars
+        function updateStars() {
+            // Convert mouse position to world coordinates
+            const aspect = canvas.width / canvas.height;
+            const mouseWorldX = (mouseX - canvas.width / 2) / (canvas.width / 2) * 100 * aspect;
+            const mouseWorldY = -(mouseY - canvas.height / 2) / (canvas.height / 2) * 100;
+            const mouseWorldZ = -30; // Fixed depth for mouse interaction
+            
+            // Update mouse trail
+            mouseTrail.unshift({ x: mouseWorldX, y: mouseWorldY, z: mouseWorldZ });
+            if (mouseTrail.length > maxTrailLength) {
+                mouseTrail.pop();
+            }
+            
+            for (let i = 0; i < starCount; i++) {
+                const idx = i * 3;
+                
+                // Handle pack followers
+                if (packStars[i] && packTargets[i] && mouseTrail.length > 0) {
+                    const target = packTargets[i];
+                    const trailIndex = Math.min(target.trailIndex, mouseTrail.length - 1);
+                    const trailPoint = mouseTrail[trailIndex];
+                    
+                    if (trailPoint) {
+                        // Add some spread based on pack ID to create distinct clusters
+                        const packSpread = 15;
+                        const packOffset = target.packId * 2.1; // Different angle for each pack
+                        const spreadX = Math.cos(packOffset) * packSpread * (Math.random() - 0.5);
+                        const spreadY = Math.sin(packOffset) * packSpread * (Math.random() - 0.5);
+                        
+                        target.x = trailPoint.x + spreadX;
+                        target.y = trailPoint.y + spreadY;
+                        target.z = trailPoint.z + (Math.random() - 0.5) * 10;
+                        
+                        // Move towards target position
+                        const dx = target.x - positions[idx];
+                        const dy = target.y - positions[idx + 1];
+                        const dz = target.z - positions[idx + 2];
+                        
+                        const followSpeed = 0.08;
+                        velocities[i * 3] = dx * followSpeed + (Math.random() - 0.5) * 0.5;
+                        velocities[i * 3 + 1] = dy * followSpeed + (Math.random() - 0.5) * 0.5;
+                        velocities[i * 3 + 2] = dz * followSpeed * 0.3 + 1; // Keep some forward motion
+                    }
+                }
+                // Handle gravitational attraction (non-pack stars)
+                else if (mouseAffected[i]) {
+                    const dx = mouseWorldX - positions[idx];
+                    const dy = mouseWorldY - positions[idx + 1];
+                    const dz = mouseWorldZ - positions[idx + 2];
+                    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    
+                    // Only attract stars within a certain range
+                    if (distance < 150 && distance > 0.1) {
+                        const force = mouseAttraction / (distance * distance) * 100;
+                        velocities[i * 3] += (dx / distance) * force;
+                        velocities[i * 3 + 1] += (dy / distance) * force;
+                        velocities[i * 3 + 2] += (dz / distance) * force * 0.3; // Less Z attraction
+                        
+                        // Limit velocity to prevent stars from flying away
+                        const maxVel = 5;
+                        velocities[i * 3] = Math.max(-maxVel, Math.min(maxVel, velocities[i * 3]));
+                        velocities[i * 3 + 1] = Math.max(-maxVel, Math.min(maxVel, velocities[i * 3 + 1]));
+                    }
+                }
+                
+                // Apply velocity damping to mouse-affected stars
+                if (mouseAffected[i]) {
+                    velocities[i * 3] *= 0.98;
+                    velocities[i * 3 + 1] *= 0.98;
+                    velocities[i * 3 + 2] = Math.max(1, velocities[i * 3 + 2] * 0.99); // Keep forward motion
+                }
+                
+                // Move star
+                positions[idx] += velocities[i * 3] * speed;
+                positions[idx + 1] += velocities[i * 3 + 1] * speed;
+                positions[idx + 2] += velocities[i * 3 + 2] * speed;
+                
+                // Wrap around when star gets too close or moves out of bounds
+                if (positions[idx + 2] > 10 || 
+                    Math.abs(positions[idx]) > 300 || 
+                    Math.abs(positions[idx + 1]) > 300) {
+                    
+                    // For pack stars, respawn them closer to the mouse trail
+                    if (packStars[i] && mouseTrail.length > 0) {
+                        const spawnPoint = mouseTrail[Math.min(5, mouseTrail.length - 1)];
+                        positions[idx] = spawnPoint.x + (Math.random() - 0.5) * 50;
+                        positions[idx + 1] = spawnPoint.y + (Math.random() - 0.5) * 50;
+                        positions[idx + 2] = spawnPoint.z - Math.random() * 20 - 10;
+                    } else {
+                        positions[idx] = (Math.random() - 0.5) * 200;
+                        positions[idx + 1] = (Math.random() - 0.5) * 200;
+                        positions[idx + 2] = -(Math.random() * 50 + 60);
+                    }
+                    
+                    // Reset star properties
+                    const sizeRandom = Math.random();
+                    if (sizeRandom < 0.1) {
+                        sizes[i] = Math.random() * 8 + 6;
+                    } else if (sizeRandom < 0.3) {
+                        sizes[i] = Math.random() * 4 + 3;
+                    } else {
+                        sizes[i] = Math.random() * 2 + 1;
+                    }
+                    twinkles[i] = Math.random() * 3 + 1;
+                    
+                    // Reset velocities for non-pack stars
+                    if (!packStars[i]) {
+                        velocities[i * 3] = (Math.random() - 0.5) * 0.2;
+                        velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.2;
+                        velocities[i * 3 + 2] = Math.random() * 3 + 2;
+                    }
+                }
+            }
+        }
+        
+        // Render function
+        function render() {
+            // Clear canvas
+            if (useTrails) {
+                gl.clearColor(0, 0, 0, 0.05);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+            } else {
+                gl.clearColor(0, 0, 0, 1);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+            
+            // Use shader program
+            gl.useProgram(program);
+            
+            // Set up projection matrix
+            const aspect = canvas.width / canvas.height;
+            const projectionMatrix = createPerspectiveMatrix(Math.PI / 3, aspect, 0.1, 500);
+            const viewMatrix = createIdentityMatrix();
+            
+            gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+            gl.uniformMatrix4fv(viewMatrixLocation, false, viewMatrix);
+            gl.uniform1f(timeLocation, Date.now() * 0.001);
+            
+            // Update star positions
+            updateStars();
+            
+            // Update position buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+            
+            // Update size buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sizes), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(sizeLocation);
+            gl.vertexAttribPointer(sizeLocation, 1, gl.FLOAT, false, 0, 0);
+            
+            // Update color buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(colorLocation);
+            gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
+            
+            // Update twinkle buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, twinkleBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(twinkles), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(twinkleLocation);
+            gl.vertexAttribPointer(twinkleLocation, 1, gl.FLOAT, false, 0, 0);
+            
+            // Enable blending for alpha
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            
+            // Draw points
+            gl.drawArrays(gl.POINTS, 0, starCount);
+            
+            requestAnimationFrame(render);
+        }
+        
+        // Control handlers - with null checks
+        function setupControls() {
+            const speedSlider = document.getElementById('speedSlider');
+            if (speedSlider) {
+                speedSlider.addEventListener('input', (e) => {
+                    speed = parseFloat(e.target.value);
+                });
+            }
+            
+            const countSlider = document.getElementById('countSlider');
+            if (countSlider) {
+                countSlider.addEventListener('input', (e) => {
+                    starCount = parseInt(e.target.value);
+                    initStars();
+                });
+            }
+            
+            const attractionSlider = document.getElementById('attractionSlider');
+            if (attractionSlider) {
+                attractionSlider.addEventListener('input', (e) => {
+                    mouseAttraction = parseFloat(e.target.value);
+                });
+            }
+            
+            const colorToggle = document.getElementById('colorToggle');
+            if (colorToggle) {
+                colorToggle.addEventListener('change', (e) => {
+                    useColors = e.target.checked;
+                    initStars();
+                });
+            }
+            
+            const trailsToggle = document.getElementById('trailsToggle');
+            if (trailsToggle) {
+                trailsToggle.addEventListener('change', (e) => {
+                    useTrails = e.target.checked;
+                });
+            }
+        }
+        
+        // Mouse tracking
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+        
+        // Initialize mouse position to center and create initial trail
+        mouseX = canvas.width / 2;
+        mouseY = canvas.height / 2;
+        
+        // Initialize mouse trail
+        for (let i = 0; i < maxTrailLength; i++) {
+            mouseTrail.push({ x: 0, y: 0, z: -30 });
+        }
+        
+        // Initialize everything when DOM is ready
+        setupControls();
+        initStars();
+        render();
+    </script>
+</body>
+</html>
