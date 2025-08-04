@@ -160,8 +160,16 @@
                 const posX = padding + Math.random() * (canvas.width - padding * 2);
                 const posY = padding + Math.random() * (canvas.height - padding * 2);
                 
-                // Random star sizes (like real stars have different magnitudes)
-                const starSize = 1.0 + Math.random() * 3.0 + Math.pow(Math.random(), 3) * 4.0;
+                // Random star sizes - smaller range but varied
+                const sizeRandom = Math.random();
+                let starSize;
+                if (sizeRandom < 0.1) {
+                    starSize = Math.random() * 0.8 + 0.4; // Small bright stars (0.4 to 1.2)
+                } else if (sizeRandom < 0.4) {
+                    starSize = Math.random() * 0.6 + 0.2; // Medium stars (0.2 to 0.8)
+                } else {
+                    starSize = Math.random() * 0.4 + 0.1; // Small stars (0.1 to 0.5)
+                }
                 
                 positions.push(posX, posY);
                 originalPositions.push(posX, posY);
@@ -194,11 +202,24 @@
         // Mouse tracking
         let mouseX = canvas.width / 2;
         let mouseY = canvas.height / 2;
+        let mouseMoving = false;
+        let mouseStopTimer = null;
 
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
             mouseX = e.clientX - rect.left;
             mouseY = e.clientY - rect.top;
+            mouseMoving = true;
+            
+            // Clear existing timer
+            if (mouseStopTimer) {
+                clearTimeout(mouseStopTimer);
+            }
+            
+            // Set timer to mark mouse as stopped
+            mouseStopTimer = setTimeout(() => {
+                mouseMoving = false;
+            }, 100);
         });
 
         // Animation loop
@@ -224,36 +245,36 @@
                 const maxDist = 150;
                 const influence = Math.max(0, 1 - Math.pow(origMouseDist / maxDist, 0.6));
                 
-                if (influence > 0.1) {
-                    // Strong direct attraction to mouse position
-                    const attractionForce = influence * influence * 0.4;
+                if (mouseMoving && influence > 0.1) {
+                    // Strong clustering attraction to mouse position
+                    const attractionForce = influence * influence * 0.8; // Increased force
                     
                     if (mouseDist > 0) {
                         // Normalize direction to mouse
                         const dirX = mouseDistX / mouseDist;
                         const dirY = mouseDistY / mouseDist;
                         
-                        // Apply force directly towards mouse
+                        // Apply force directly towards mouse for clustering
                         velocities[i] += dirX * attractionForce;
                         velocities[i + 1] += dirY * attractionForce;
                     }
                     
-                    // Additional magnetic pull for very close stars
-                    if (mouseDist < 50) {
-                        const magneticPull = (50 - mouseDist) / 50 * 0.3;
-                        velocities[i] += mouseDistX * magneticPull * 0.1;
-                        velocities[i + 1] += mouseDistY * magneticPull * 0.1;
+                    // Strong magnetic pull for very close stars to cluster tightly
+                    if (mouseDist < 80) {
+                        const magneticPull = (80 - mouseDist) / 80 * 0.6; // Increased pull
+                        velocities[i] += mouseDistX * magneticPull * 0.2;
+                        velocities[i + 1] += mouseDistY * magneticPull * 0.2;
                     }
                 } else {
-                    // Return to original position when outside influence
-                    const returnForce = 0.12;
+                    // Return to original position when mouse stops or outside influence
+                    const returnForce = 0.15; // Slightly faster return
                     velocities[i] += (origX - currentX) * returnForce;
                     velocities[i + 1] += (origY - currentY) * returnForce;
                 }
                 
                 // Apply damping
-                velocities[i] *= 0.88;
-                velocities[i + 1] *= 0.88;
+                velocities[i] *= 0.85; // Slightly more damping
+                velocities[i + 1] *= 0.85;
                 
                 // Update position
                 positions[i] += velocities[i];
