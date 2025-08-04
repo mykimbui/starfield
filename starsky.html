@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Constellation Logo in Starfield</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #020918;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        .control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 10, 25, 0.85);
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            min-width: 250px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .control-panel h3 {
+            color: rgba(200, 220, 255, 0.9);
+            margin: 0 0 15px 0;
+            font-size: 14px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .control-group {
+            margin-bottom: 12px;
+        }
+        
+        .control-group label {
+            display: block;
+            color: rgba(180, 200, 255, 0.8);
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(50, 80, 120, 0.6);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: rgba(150, 200, 255, 0.9);
+            cursor: pointer;
+            border: 2px solid rgba(100, 150, 255, 0.7);
+            box-shadow: 0 0 8px rgba(150, 200, 255, 0.4);
+        }
+        
+        .slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: rgba(150, 200, 255, 0.9);
+            cursor: pointer;
+            border: 2px solid rgba(100, 150, 255, 0.7);
+            box-shadow: 0 0 8px rgba(150, 200, 255, 0.4);
+        }
+        
+        .value-display {
+            color: rgba(200, 220, 255, 0.7);
+            font-size: 11px;
+            text-align: right;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="constellation-canvas"></canvas>
+    
+    <div class="control-panel">
+        <h3>Starfield Controls</h3>
+        
+        <div class="control-group">
+            <label for="starCount">Star Count</label>
+            <input type="range" id="starCount" class="slider" min="5000" max="50000" value="15000" step="2500">
+            <div class="value-display" id="starCountValue">15000</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="nebulaVisibility">Nebula Visibility</label>
+            <input type="range" id="nebulaVisibility" class="slider" min="0" max="1" value="1" step="0.1">
+            <div class="value-display" id="nebulaVisibilityValue">100%</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="nebulaSize">Nebula Size</label>
+            <input type="range" id="nebulaSize" class="slider" min="0.1" max="2" value="1" step="0.1">
+            <div class="value-display" id="nebulaSizeValue">1.0x</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="shootingStars">Shooting Stars</label>
+            <input type="range" id="shootingStars" class="slider" min="0" max="50" value="8" step="1">
+            <div class="value-display" id="shootingStarsValue">8</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="grainIntensity">Grain Texture</label>
+            <input type="range" id="grainIntensity" class="slider" min="0" max="2" value="0.7" step="0.1">
+            <div class="value-display" id="grainIntensityValue">0.7x</div>
+        </div>
+        
+        <div class="control-group">
+            <label for="mouseInteractivity">Mouse Interaction</label>
+            <input type="range" id="mouseInteractivity" class="slider" min="0" max="5" value="1" step="0.2">
+            <div class="value-display" id="mouseInteractivityValue">1.0x</div>
+        </div>
+    </div>
+
+    <script>
+        class ConstellationStarfield {
+            constructor() {
+                this.canvas = document.getElementById('constellation-canvas');
+                this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
+                
+                if (!this.gl) {
+                    alert('WebGL not supported');
+                    return;
+                }
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                
+                this.particles = [];
+                this.constellationLines = [];
+                this.spaceParticles = [];
+                this.numParticles = 15000;
+                this.numSpaceParticles = 10000;
+                this.time = 0;
+                this.mouseX = 0;
+                this.mouseY = 0;
+                
+                // Control parameters
+                this.starCount = 15000;
+                this.nebulaVisibility = 1.0;
+                this.nebulaSize = 1.0;
+                this.shootingStars = 8;
+                this.grainIntensity = 0.7;
+                this.mouseInteractivity = 1.0;
+                
+                // Shooting stars system
+                this.shootingStarsList = [];
+                this.lastShootingStarTime = 0;
+                
+                this.setupWebGL();
+                this.createParticles();
+                this.createSpaceParticles();
+                this.createConstellation();
+                this.setupMouseEvents();
+                this.setupControlPanel();
+                this.animate();
+            }
+            
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            }
+            
+            setupWebGL() {
+                const particleVertexShader = `
+                    attribute vec3 position;
+                    attribute float size;
+                    attribute float alpha;
+                    
+                    uniform mat4 projection;
+                    uniform mat4 view;
+                    uniform mat4 model;
+                    uniform float time;
+                    uniform vec2 mouse;
+                    uniform float mouseInteractivity;
+                    
+                    varying float vAlpha;
+                    varying float vDistance;
+                    varying float vSize;
+                    
+                    void main() {
+                        vec3 currentPos = position;
+                        
+                        // Mouse clustering effect
+                        if (length(mouse) > 0.01 && mouseInteractivity > 0.0) {
+                            // Convert mouse coordinates to world space
+                            vec2 mouseWorld = mouse * vec2(8.0, 6.0);
+                            vec3 mousePos3D = vec3(mouseWorld.x, mouseWorld.y, position.z);
+                            
+                            // Calculate distance to mouse in 2D space (ignoring Z for attraction)
+                            vec2 toMouse2D = mouseWorld - position.xy;
+                            float mouseDistance2D = length(toMouse2D);
+                            
+                            // Attraction zone and falloff - larger radius, much smaller minimum distance
+                            float attractionRadius = 6.0;
+                            float minDistance = 0.05; // Much closer to mouse
+                            
+                            if (mouseDistance2D < attractionRadius && mouseDistance2D > minDistance) {
+                                // Much stronger attraction falloff
+                                float attractionStrength = 1.0 - smoothstep(minDistance, attractionRadius, mouseDistance2D);
+                                attractionStrength = pow(attractionStrength, 1.5); // Less aggressive falloff for stronger pull
+                                
+                                // Stronger animation with faster response
+                                float animationSpeed = 4.0;
+                                float timeOffset = sin(position.x * 5.0 + position.y * 7.0) * 0.3;
+                                float timeMultiplier = sin(time * animationSpeed + timeOffset) * 0.3 + 0.7; // Higher baseline
+                                
+                                // Much stronger attraction force
+                                vec2 attractionDirection = normalize(toMouse2D);
+                                float attractionForce = attractionStrength * mouseInteractivity * 1.8 * timeMultiplier;
+                                
+                                // Apply much stronger attraction to position
+                                vec2 offset = attractionDirection * attractionForce * mouseDistance2D * 0.4;
+                                currentPos.xy += offset;
+                                
+                                // Tighter orbital motion around mouse
+                                if (mouseDistance2D < attractionRadius * 0.4) {
+                                    float orbitSpeed = time * 3.0 + position.x * 4.0 + position.y * 3.0;
+                                    vec2 perpendicular = vec2(-attractionDirection.y, attractionDirection.x);
+                                    vec2 orbitalOffset = perpendicular * sin(orbitSpeed) * attractionStrength * 0.15;
+                                    currentPos.xy += orbitalOffset;
+                                }
+                            }
+                        }
+                        
+                        vec4 worldPosition = model * vec4(currentPos, 1.0);
+                        gl_Position = projection * view * worldPosition;
+                        
+                        float distance = length(worldPosition.xyz);
+                        vDistance = distance;
+                        
+                        // Enhanced size for clustered stars
+                        float mouseInfluence = length(mouse) * 0.1 * mouseInteractivity;
+                        float distanceScale = 1.0 / (1.0 + distance * 0.1);
+                        
+                        // Boost size for stars close to mouse
+                        float mouseDistance2D = length(mouse * vec2(8.0, 6.0) - currentPos.xy);
+                        float sizeBoost = 1.0;
+                        if (mouseDistance2D < 6.0 && length(mouse) > 0.01) {
+                            float proximityBoost = 1.0 - smoothstep(0.05, 6.0, mouseDistance2D);
+                            sizeBoost = 1.0 + proximityBoost * 1.2 * mouseInteractivity; // Stronger size boost
+                        }
+                        
+                        float animatedSize = size * distanceScale * sizeBoost * (1.0 + mouseInfluence * sin(position.x * 8.0 + position.y * 6.0) * 0.1);
+                        gl_PointSize = animatedSize;
+                        
+                        // Enhanced alpha for clustered stars
+                        float distanceAlpha = 1.0 / (1.0 + distance * 0.15);
+                        float baseAlpha = alpha * distanceAlpha;
+                        
+                        // Brightness boost for clustered stars
+                        float alphaBoost = 1.0;
+                        if (mouseDistance2D < 6.0 && length(mouse) > 0.01) {
+                            float proximityAlpha = 1.0 - smoothstep(0.05, 6.0, mouseDistance2D);
+                            alphaBoost = 1.0 + proximityAlpha * 1.0 * mouseInteractivity; // Stronger brightness boost
+                        }
+                        
+                        vAlpha = baseAlpha * alphaBoost * (0.95 + 0.15 * mouseInfluence * sin(position.z * 10.0) * 0.1);
+                        
+                        float twinkle1 = sin(time * 3.5 + position.x * 20.0) * 0.25;
+                        float twinkle2 = sin(time * 3.0 + position.y * 15.0) * 0.2;
+                        float twinkle3 = sin(time * 2.5 + position.z * 12.0) * 0.15;
+                        float combinedTwinkle = (twinkle1 + twinkle2 + twinkle3) * 0.4;
+                        vAlpha = vAlpha * (1.0 + combinedTwinkle);
+                        
+                        vSize = size;
+                    }
+                `;
+                
+                const particleFragmentShader = `
+                    precision mediump float;
+                    varying float vAlpha;
+                    varying float vDistance;
+                    varying float vSize;
+                    
+                    void main() {
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        float dist = length(coord);
+                        
+                        float falloff;
+                        if (vDistance > 5.0) {
+                            falloff = 1.0 - smoothstep(0.1, 0.5, dist);
+                            falloff *= exp(-dist * 2.0);
+                        } else if (vDistance > 3.0) {
+                            falloff = 1.0 - smoothstep(0.2, 0.5, dist);
+                            falloff *= (1.0 - dist * dist);
+                        } else {
+                            falloff = 1.0 - smoothstep(0.3, 0.45, dist);
+                        }
+                        
+                        if (falloff <= 0.0) {
+                            discard;
+                        }
+                        
+                        float alpha = vAlpha * falloff;
+                        
+                        vec3 color;
+                        if (vDistance > 6.0) {
+                            color = vec3(0.9, 0.95, 1.0);
+                        } else if (vDistance > 4.0) {
+                            color = vec3(0.95, 0.98, 1.0);
+                        } else {
+                            color = vec3(1.0, 1.0, 1.0);
+                        }
+                        
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `;
+                
+                const lineVertexShader = `
+                    attribute vec3 position;
+                    attribute float distance;
+                    
+                    uniform mat4 projection;
+                    uniform mat4 view;
+                    uniform mat4 model;
+                    uniform float time;
+                    uniform vec2 mouse;
+                    uniform float mouseInteractivity;
+                    
+                    varying float vAlpha;
+                    varying float vDistance;
+                    
+                    void main() {
+                        vec4 worldPosition = model * vec4(position, 1.0);
+                        gl_Position = projection * view * worldPosition;
+                        
+                        float mouseInfluence = length(mouse) * mouseInteractivity * 0.8;
+                        float baseAlpha = distance > 0.5 ? 0.3 : 0.8;
+                        vAlpha = baseAlpha + mouseInfluence * 0.6;
+                        vDistance = distance;
+                    }
+                `;
+                
+                const lineFragmentShader = `
+                    precision mediump float;
+                    varying float vAlpha;
+                    varying float vDistance;
+                    
+                    void main() {
+                        vec3 farColor = vec3(0.5, 0.7, 1.0);
+                        vec3 closeColor = vec3(0.8, 0.9, 1.0);
+                        vec3 color = vDistance > 0.5 ? farColor : closeColor;
+                        gl_FragColor = vec4(color, vAlpha);
+                    }
+                `;
+                
+                const spaceParticleVertexShader = `
+                    attribute vec3 position;
+                    attribute float size;
+                    attribute float alpha;
+                    attribute vec3 velocity;
+                    
+                    uniform mat4 projection;
+                    uniform mat4 view;
+                    uniform mat4 model;
+                    uniform float time;
+                    uniform vec2 mouse;
+                    uniform float mouseInteractivity;
+                    
+                    varying float vAlpha;
+                    varying float vSize;
+                    
+                    void main() {
+                        vec3 floatingPos = position + velocity * time * 0.4;
+                        
+                        float orbitRadius = 0.3;
+                        float orbitSpeed = time * 0.2 + position.x * 2.0;
+                        floatingPos.x += sin(orbitSpeed) * orbitRadius * 0.5;
+                        floatingPos.y += cos(orbitSpeed) * orbitRadius * 0.3;
+                        
+                        floatingPos.x = mod(floatingPos.x + 8.0, 16.0) - 8.0;
+                        floatingPos.y = mod(floatingPos.y + 6.0, 12.0) - 6.0;
+                        floatingPos.z = mod(floatingPos.z + 4.0, 8.0) - 4.0;
+                        
+                        vec4 worldPosition = model * vec4(floatingPos, 1.0);
+                        gl_Position = projection * view * worldPosition;
+                        
+                        float mouseInfluence = length(mouse) * 0.08 * mouseInteractivity;
+                        float depthSize = 1.0 + (floatingPos.z + 4.0) * 0.1;
+                        float pulseSize = 1.0 + sin(time * 1.5 + position.x * 8.0) * 0.2;
+                        gl_PointSize = size * depthSize * pulseSize * (1.0 + mouseInfluence);
+                        
+                        float depthAlpha = 1.0 - abs(floatingPos.z) * 0.1;
+                        float atmosphericAlpha = 0.3 + sin(time * 0.8 + position.y * 4.0) * 0.3;
+                        vAlpha = alpha * depthAlpha * atmosphericAlpha;
+                        vSize = size;
+                    }
+                `;
+                
+                const spaceParticleFragmentShader = `
+                    precision mediump float;
+                    varying float vAlpha;
+                    varying float vSize;
+                    
+                    void main() {
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        float dist = length(coord);
+                        
+                        if (dist > 0.5) discard;
+                        
+                        float alpha;
+                        if (vSize < 1.0) {
+                            alpha = vAlpha * (1.0 - smoothstep(0.2, 0.5, dist));
+                        } else if (vSize < 1.5) {
+                            alpha = vAlpha * (1.0 - dist * dist);
+                        } else {
+                            alpha = vAlpha * exp(-dist * 3.0);
+                        }
+                        
+                        vec3 color;
+                        if (vSize < 1.0) {
+                            color = vec3(0.8, 0.9, 1.0);
+                        } else if (vSize < 1.5) {
+                            color = vec3(0.9, 0.95, 1.0);
+                        } else {
+                            color = vec3(1.0, 0.95, 0.9);
+                        }
+                        
+                        gl_FragColor = vec4(color, alpha * 0.4);
+                    }
+                `;
+                
+                const backgroundVertexShader = `
+                    attribute vec2 position;
+                    varying vec2 vPosition;
+                    
+                    void main() {
+                        gl_Position = vec4(position, 0.0, 1.0);
+                        vPosition = position;
+                    }
+                `;
+                
+                const backgroundFragmentShader = `
+                    precision mediump float;
+                    varying vec2 vPosition;
+                    uniform float time;
+                    uniform float nebulaVisibility;
+                    uniform float nebulaSize;
+                    
+                    void main() {
+                        // Direct scaling approach for more obvious visual effect
+                        vec2 pos = vPosition * nebulaSize;
+                        
+                        // Much larger base waves for visibility
+                        float wave1 = sin(pos.x * 1.8 + time * 0.14) * sin(pos.y * 1.3 + time * 0.11) * 1.2;
+                        float wave2 = sin(pos.x * 0.9 - time * 0.17) * sin(pos.y * 1.8 - time * 0.13) * 1.0;
+                        float wave3 = sin(pos.x * 0.6 + pos.y * 0.5 + time * 0.08) * 0.8;
+                        float wave4 = sin(pos.x * 2.4 - time * 0.09) * cos(pos.y * 1.5 + time * 0.08) * 0.6;
+                        float turbulence1 = sin(pos.x * 4.5 + time * 0.04) * cos(pos.y * 3.8 - time * 0.03) * 0.4;
+                        
+                        // Much higher intensity for visibility
+                        float combined = (wave1 + wave2 + wave3 + wave4 + turbulence1) * 0.25;
+                        
+                        // More sensitive smoothstep for better contrast
+                        combined = smoothstep(-1.2, 1.2, combined);
+                        combined = smoothstep(0.0, 1.0, combined);
+                        
+                        // Enhanced color palette with more visible differences
+                        vec3 baseColor = vec3(2.0/255.0, 9.0/255.0, 24.0/255.0);
+                        vec3 lightColor = vec3(25.0/255.0, 45.0/255.0, 85.0/255.0);
+                        vec3 darkColor = vec3(0.0, 0.0, 8.0/255.0);
+                        vec3 purpleColor = vec3(15.0/255.0, 8.0/255.0, 35.0/255.0);
+                        vec3 tealColor = vec3(8.0/255.0, 25.0/255.0, 40.0/255.0);
+                        
+                        vec3 color = baseColor;
+                        
+                        // Much stronger mixing for visibility
+                        float lightMix = smoothstep(0.6, 0.9, combined);
+                        float purpleMix = smoothstep(0.3, 0.7, combined) - smoothstep(0.7, 0.9, combined);
+                        float tealMix = smoothstep(0.1, 0.5, combined) - smoothstep(0.5, 0.8, combined);
+                        float darkMix = smoothstep(0.5, 0.0, combined);
+                        
+                        color = mix(color, lightColor, lightMix * 0.8);
+                        color = mix(color, purpleColor, purpleMix * 0.6);
+                        color = mix(color, tealColor, tealMix * 0.5);
+                        color = mix(color, darkColor, darkMix * 0.7);
+                        
+                        // Add blur effect for more nebula texture
+                        vec2 blur1 = pos + vec2(0.05, 0.03) * sin(time * 0.3);
+                        vec2 blur2 = pos + vec2(-0.03, 0.05) * sin(time * 0.25);
+                        
+                        float blurWave1 = sin(blur1.x * 1.8 + time * 0.14) * sin(blur1.y * 1.3 + time * 0.11);
+                        float blurWave2 = sin(blur2.x * 0.9 - time * 0.17) * sin(blur2.y * 1.8 - time * 0.13);
+                        float blurCombined = (blurWave1 + blurWave2) * 0.15;
+                        
+                        vec3 finalColor = mix(color, lightColor * 0.5, abs(blurCombined) * 0.3);
+                        
+                        gl_FragColor = vec4(finalColor, nebulaVisibility);
+                    }
+                `;
+                
+                const grainVertexShader = `
+                    attribute vec2 position;
+                    varying vec2 vPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        gl_Position = vec4(position, 0.0, 1.0);
+                        vPosition = position;
+                        vUv = position * 0.5 + 0.5;
+                    }
+                `;
+                
+                const grainFragmentShader = `
+                    precision mediump float;
+                    varying vec2 vPosition;
+                    varying vec2 vUv;
+                    uniform float time;
+                    uniform vec2 resolution;
+                    uniform float grainIntensity;
+                    
+                    float random(vec2 st) {
+                        return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+                    }
+                    
+                    float noise(vec2 st) {
+                        vec2 i = floor(st);
+                        vec2 f = fract(st);
+                        float a = random(i);
+                        float b = random(i + vec2(1.0, 0.0));
+                        float c = random(i + vec2(0.0, 1.0));
+                        float d = random(i + vec2(1.0, 1.0));
+                        vec2 u = f * f * (3.0 - 2.0 * f);
+                        return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+                    }
+                    
+                    void main() {
+                        vec2 st = vUv * resolution * 0.004;
+                        
+                        // Multiple grain layers for richer texture
+                        float grain1 = noise(st + time * 0.12);
+                        float grain2 = noise(st * 1.8 + time * 0.18);
+                        float grain3 = noise(st * 3.2 + time * 0.09);
+                        float grain4 = noise(st * 0.6 + time * 0.06);
+                        
+                        // Combine layers with different weights
+                        float grain = (grain1 * 0.4 + grain2 * 0.25 + grain3 * 0.2 + grain4 * 0.15);
+                        
+                        // Apply grain intensity with user control
+                        float finalGrainIntensity = (grain - 0.5) * 0.18 * grainIntensity;
+                        
+                        // Add color variation to grain
+                        vec3 grainColor = vec3(
+                            finalGrainIntensity + noise(st * 1.1) * 0.02 * grainIntensity,
+                            finalGrainIntensity + noise(st * 1.3) * 0.015 * grainIntensity,
+                            finalGrainIntensity + noise(st * 0.9) * 0.025 * grainIntensity
+                        );
+                        
+                        gl_FragColor = vec4(grainColor, grainIntensity);
+                    }
+                `;
+                
+                this.particleProgram = this.createProgram(particleVertexShader, particleFragmentShader);
+                this.lineProgram = this.createProgram(lineVertexShader, lineFragmentShader);
+                this.spaceParticleProgram = this.createProgram(spaceParticleVertexShader, spaceParticleFragmentShader);
+                this.backgroundProgram = this.createProgram(backgroundVertexShader, backgroundFragmentShader);
+                this.grainProgram = this.createProgram(grainVertexShader, grainFragmentShader);
+                
+                // Shooting star shader
+                const shootingStarVertexShader = `
+                    attribute vec3 position;
+                    attribute vec3 velocity;
+                    attribute float life;
+                    attribute float brightness;
+                    
+                    uniform mat4 projection;
+                    uniform mat4 view;
+                    uniform mat4 model;
+                    uniform float time;
+                    
+                    varying float vLife;
+                    varying float vBrightness;
+                    varying float vTrailLength;
+                    
+                    void main() {
+                        vec3 currentPos = position + velocity * life;
+                        vec4 worldPosition = model * vec4(currentPos, 1.0);
+                        gl_Position = projection * view * worldPosition;
+                        
+                        // Enhanced fading with longer visible time
+                        float fadeOut = 1.0 - smoothstep(0.7, 1.0, life);
+                        float fadeIn = smoothstep(0.0, 0.3, life);
+                        vLife = fadeOut * fadeIn;
+                        vBrightness = brightness;
+                        
+                        // Calculate trail length based on velocity
+                        vTrailLength = length(velocity) * 0.5;
+                        
+                        // Much larger and more visible size
+                        gl_PointSize = 8.0 + brightness * 12.0 + vTrailLength * 2.0;
+                    }
+                `;
+                
+                const shootingStarFragmentShader = `
+                    precision mediump float;
+                    varying float vLife;
+                    varying float vBrightness;
+                    varying float vTrailLength;
+                    
+                    void main() {
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        float dist = length(coord);
+                        
+                        // Create elongated trail effect
+                        vec2 trailCoord = coord;
+                        trailCoord.x *= 0.3; // Compress horizontally for trail effect
+                        float trailDist = length(trailCoord);
+                        
+                        float alpha;
+                        if (trailDist < 0.3) {
+                            // Bright core
+                            alpha = vLife * vBrightness * (1.0 - trailDist * trailDist) * 1.5;
+                        } else if (dist < 0.5) {
+                            // Outer glow
+                            alpha = vLife * vBrightness * (1.0 - smoothstep(0.3, 0.5, dist)) * 0.8;
+                        } else {
+                            discard;
+                        }
+                        
+                        // Brighter, more visible colors with slight trail effect
+                        vec3 coreColor = vec3(1.0, 1.0, 1.0);
+                        vec3 glowColor = vec3(0.8, 0.9, 1.0);
+                        vec3 color = mix(glowColor, coreColor, vBrightness);
+                        
+                        // Add intensity boost
+                        alpha *= 1.8;
+                        
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `;
+                
+                this.shootingStarProgram = this.createProgram(shootingStarVertexShader, shootingStarFragmentShader);
+                
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                this.gl.enable(this.gl.DEPTH_TEST);
+                this.gl.depthFunc(this.gl.LEQUAL);
+                
+                const quadVertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+                this.backgroundBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.backgroundBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, quadVertices, this.gl.STATIC_DRAW);
+                this.grainBuffer = this.backgroundBuffer;
+                
+                // Initialize shooting star buffers
+                this.initializeShootingStars();
+            }
+            
+            initializeShootingStars() {
+                this.shootingStarPositions = [];
+                this.shootingStarVelocities = [];
+                this.shootingStarLives = [];
+                this.shootingStarBrightness = [];
+                
+                this.shootingStarPositionBuffer = this.gl.createBuffer();
+                this.shootingStarVelocityBuffer = this.gl.createBuffer();
+                this.shootingStarLifeBuffer = this.gl.createBuffer();
+                this.shootingStarBrightnessBuffer = this.gl.createBuffer();
+            }
+            
+            createShootingStar() {
+                // Random starting position on edges (not bottom)
+                let x, y, z;
+                const edge = Math.random();
+                
+                if (edge < 0.33) {
+                    // From left
+                    x = -10;
+                    y = (Math.random() - 0.5) * 12;
+                } else if (edge < 0.66) {
+                    // From right  
+                    x = 10;
+                    y = (Math.random() - 0.5) * 12;
+                } else {
+                    // From top
+                    x = (Math.random() - 0.5) * 16;
+                    y = 8;
+                }
+                z = (Math.random() - 0.5) * 6;
+                
+                // Faster, more visible velocities
+                let vx, vy, vz;
+                if (edge < 0.33) {
+                    // Coming from left - go right and up/diagonal
+                    vx = 4 + Math.random() * 6;
+                    vy = (Math.random() - 0.2) * 3; // Bias upward
+                } else if (edge < 0.66) {
+                    // Coming from right - go left and up/diagonal
+                    vx = -(4 + Math.random() * 6);
+                    vy = (Math.random() - 0.2) * 3; // Bias upward
+                } else {
+                    // Coming from top - go sideways and down slightly
+                    vx = (Math.random() - 0.5) * 8;
+                    vy = -(1 + Math.random() * 3);
+                }
+                vz = (Math.random() - 0.5) * 2;
+                
+                return {
+                    position: [x, y, z],
+                    velocity: [vx, vy, vz],
+                    life: 0,
+                    brightness: 0.7 + Math.random() * 0.3 // Brighter base brightness
+                };
+            }
+            
+            updateShootingStars() {
+                const currentTime = this.time;
+                const interval = this.shootingStars > 0 ? (30 / this.shootingStars) : 999999; // Faster spawning
+                
+                // Add new shooting stars
+                if (currentTime - this.lastShootingStarTime > interval && this.shootingStars > 0) {
+                    this.shootingStarsList.push(this.createShootingStar());
+                    this.lastShootingStarTime = currentTime;
+                }
+                
+                // Update existing shooting stars
+                this.shootingStarsList = this.shootingStarsList.filter(star => {
+                    star.life += 0.012; // Slightly slower progression for longer visibility
+                    return star.life < 1.0; // Remove after 1 second
+                });
+                
+                // Update buffers
+                this.shootingStarPositions = [];
+                this.shootingStarVelocities = [];
+                this.shootingStarLives = [];
+                this.shootingStarBrightness = [];
+                
+                this.shootingStarsList.forEach(star => {
+                    this.shootingStarPositions.push(...star.position);
+                    this.shootingStarVelocities.push(...star.velocity);
+                    this.shootingStarLives.push(star.life);
+                    this.shootingStarBrightness.push(star.brightness);
+                });
+                
+                // Update WebGL buffers
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shootingStarPositionBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(this.shootingStarPositions), this.gl.DYNAMIC_DRAW);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shootingStarVelocityBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(this.shootingStarVelocities), this.gl.DYNAMIC_DRAW);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shootingStarLifeBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(this.shootingStarLives), this.gl.DYNAMIC_DRAW);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shootingStarBrightnessBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(this.shootingStarBrightness), this.gl.DYNAMIC_DRAW);
+            }
+            
+            createShader(type, source) {
+                const shader = this.gl.createShader(type);
+                this.gl.shaderSource(shader, source);
+                this.gl.compileShader(shader);
+                
+                if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                    console.error('Shader compilation error:', this.gl.getShaderInfoLog(shader));
+                    this.gl.deleteShader(shader);
+                    return null;
+                }
+                return shader;
+            }
+            
+            createProgram(vertexSource, fragmentSource) {
+                const vertexShader = this.createShader(this.gl.VERTEX_SHADER, vertexSource);
+                const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, fragmentSource);
+                
+                if (!vertexShader || !fragmentShader) {
+                    console.error('Failed to create shaders');
+                    return null;
+                }
+                
+                const program = this.gl.createProgram();
+                this.gl.attachShader(program, vertexShader);
+                this.gl.attachShader(program, fragmentShader);
+                this.gl.linkProgram(program);
+                
+                if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+                    console.error('Program linking error:', this.gl.getProgramInfoLog(program));
+                    return null;
+                }
+                return program;
+            }
+            
+            createParticles() {
+                const positions = [];
+                const sizes = [];
+                const alphas = [];
+                
+                let seed = 12345;
+                function seededRandom() {
+                    seed = (seed * 9301 + 49297) % 233280;
+                    return seed / 233280;
+                }
+                
+                for (let i = 0; i < this.numParticles; i++) {
+                    const depthLayer = seededRandom();
+                    let x, y, z, size, alpha;
+                    
+                    if (depthLayer < 0.3) {
+                        x = (seededRandom() - 0.5) * 20;
+                        y = (seededRandom() - 0.5) * 15;
+                        z = -6 - seededRandom() * 8;
+                        size = 0.3 + seededRandom() * 0.6;
+                        alpha = 0.03 + seededRandom() * 0.1;
+                    } else if (depthLayer < 0.55) {
+                        x = (seededRandom() - 0.5) * 16;
+                        y = (seededRandom() - 0.5) * 12;
+                        z = -4 - seededRandom() * 2;
+                        size = 0.5 + seededRandom() * 0.8;
+                        alpha = 0.05 + seededRandom() * 0.15;
+                    } else if (depthLayer < 0.75) {
+                        x = (seededRandom() - 0.5) * 14;
+                        y = (seededRandom() - 0.5) * 10;
+                        z = -2 - seededRandom() * 2;
+                        size = 0.7 + seededRandom() * 1.0;
+                        alpha = 0.1 + seededRandom() * 0.2;
+                    } else if (depthLayer < 0.9) {
+                        x = (seededRandom() - 0.5) * 10;
+                        y = (seededRandom() - 0.5) * 7;
+                        z = -1 + seededRandom() * 2;
+                        size = 1.0 + seededRandom() * 1.2;
+                        alpha = 0.2 + seededRandom() * 0.3;
+                    } else {
+                        x = (seededRandom() - 0.5) * 8;
+                        y = (seededRandom() - 0.5) * 6;
+                        z = 1 + seededRandom() * 2;
+                        size = 1.2 + seededRandom() * 1.8;
+                        alpha = 0.3 + seededRandom() * 0.5;
+                    }
+                    
+                    positions.push(x, y, z);
+                    sizes.push(size);
+                    alphas.push(alpha);
+                }
+                
+                this.positionBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
+                
+                this.sizeBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.sizeBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(sizes), this.gl.STATIC_DRAW);
+                
+                this.alphaBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(alphas), this.gl.STATIC_DRAW);
+            }
+            
+            createSpaceParticles() {
+                const positions = [];
+                const sizes = [];
+                const alphas = [];
+                const velocities = [];
+                
+                let seed = 54321;
+                function seededRandom() {
+                    seed = (seed * 9301 + 49297) % 233280;
+                    return seed / 233280;
+                }
+                
+                for (let i = 0; i < this.numSpaceParticles; i++) {
+                    const x = (seededRandom() - 0.5) * 12;
+                    const y = (seededRandom() - 0.5) * 8;
+                    const z = (seededRandom() - 0.5) * 6;
+                    positions.push(x, y, z);
+                    
+                    const size = 0.3 + seededRandom() * 1.5;
+                    sizes.push(size);
+                    
+                    alphas.push(0.15 + seededRandom() * 0.2);
+                    
+                    const vx = (seededRandom() - 0.5) * 0.6;
+                    const vy = (seededRandom() - 0.5) * 0.4;
+                    const vz = (seededRandom() - 0.5) * 0.3;
+                    velocities.push(vx, vy, vz);
+                }
+                
+                this.spaceParticlePositionBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticlePositionBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
+                
+                this.spaceParticleSizeBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleSizeBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(sizes), this.gl.STATIC_DRAW);
+                
+                this.spaceParticleAlphaBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleAlphaBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(alphas), this.gl.STATIC_DRAW);
+                
+                this.spaceParticleVelocityBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleVelocityBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(velocities), this.gl.STATIC_DRAW);
+            }
+            
+            createConstellation() {
+                this.lineBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.lineBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([]), this.gl.STATIC_DRAW);
+                
+                this.lineDistanceBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.lineDistanceBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([]), this.gl.STATIC_DRAW);
+                
+                this.lineCount = 0;
+            }
+            
+            setupMouseEvents() {
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.mouseX = (e.clientX - rect.left - this.canvas.width / 2) / (this.canvas.width / 2);
+                    this.mouseY = -(e.clientY - rect.top - this.canvas.height / 2) / (this.canvas.height / 2);
+                });
+                
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.mouseX = 0;
+                    this.mouseY = 0;
+                });
+            }
+            
+            setupControlPanel() {
+                const starCountSlider = document.getElementById('starCount');
+                const starCountValue = document.getElementById('starCountValue');
+                
+                starCountSlider.addEventListener('input', (e) => {
+                    this.starCount = parseInt(e.target.value);
+                    starCountValue.textContent = this.starCount.toLocaleString();
+                    this.updateStarCount();
+                });
+                
+                const nebulaVisibilitySlider = document.getElementById('nebulaVisibility');
+                const nebulaVisibilityValue = document.getElementById('nebulaVisibilityValue');
+                
+                nebulaVisibilitySlider.addEventListener('input', (e) => {
+                    this.nebulaVisibility = parseFloat(e.target.value);
+                    nebulaVisibilityValue.textContent = Math.round(this.nebulaVisibility * 100) + '%';
+                });
+                
+                const nebulaSizeSlider = document.getElementById('nebulaSize');
+                const nebulaSizeValue = document.getElementById('nebulaSizeValue');
+                
+                nebulaSizeSlider.addEventListener('input', (e) => {
+                    this.nebulaSize = parseFloat(e.target.value);
+                    nebulaSizeValue.textContent = this.nebulaSize.toFixed(1) + 'x';
+                });
+                
+                const shootingStarsSlider = document.getElementById('shootingStars');
+                const shootingStarsValue = document.getElementById('shootingStarsValue');
+                
+                shootingStarsSlider.addEventListener('input', (e) => {
+                    this.shootingStars = parseInt(e.target.value);
+                    shootingStarsValue.textContent = this.shootingStars.toString();
+                });
+                
+                const grainIntensitySlider = document.getElementById('grainIntensity');
+                const grainIntensityValue = document.getElementById('grainIntensityValue');
+                
+                grainIntensitySlider.addEventListener('input', (e) => {
+                    this.grainIntensity = parseFloat(e.target.value);
+                    grainIntensityValue.textContent = this.grainIntensity.toFixed(1) + 'x';
+                });
+                
+                const mouseInteractivitySlider = document.getElementById('mouseInteractivity');
+                const mouseInteractivityValue = document.getElementById('mouseInteractivityValue');
+                
+                mouseInteractivitySlider.addEventListener('input', (e) => {
+                    this.mouseInteractivity = parseFloat(e.target.value);
+                    mouseInteractivityValue.textContent = this.mouseInteractivity.toFixed(1) + 'x';
+                });
+            }
+            
+            updateStarCount() {
+                this.numParticles = this.starCount;
+                this.createParticles();
+            }
+            
+            createMatrix4() {
+                return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+            }
+            
+            perspective(fov, aspect, near, far) {
+                const f = 1 / Math.tan(fov / 2);
+                const rangeInv = 1 / (near - far);
+                
+                return [
+                    f / aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (near + far) * rangeInv, -1,
+                    0, 0, near * far * rangeInv * 2, 0
+                ];
+            }
+            
+            lookAt(eye, target, up) {
+                const zAxis = this.normalize([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
+                const xAxis = this.normalize(this.cross(up, zAxis));
+                const yAxis = this.cross(zAxis, xAxis);
+                
+                return [
+                    xAxis[0], yAxis[0], zAxis[0], 0,
+                    xAxis[1], yAxis[1], zAxis[1], 0,
+                    xAxis[2], yAxis[2], zAxis[2], 0,
+                    -this.dot(xAxis, eye), -this.dot(yAxis, eye), -this.dot(zAxis, eye), 1
+                ];
+            }
+            
+            rotateXY(matrix, angleX, angleY) {
+                const cosX = Math.cos(angleX);
+                const sinX = Math.sin(angleX);
+                const cosY = Math.cos(angleY);
+                const sinY = Math.sin(angleY);
+                
+                return [
+                    cosY, sinX * sinY, cosX * sinY, 0,
+                    0, cosX, -sinX, 0,
+                    -sinY, sinX * cosY, cosX * cosY, 0,
+                    0, 0, 0, 1
+                ];
+            }
+            
+            normalize(v) {
+                const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                return [v[0] / length, v[1] / length, v[2] / length];
+            }
+            
+            cross(a, b) {
+                return [
+                    a[1] * b[2] - a[2] * b[1],
+                    a[2] * b[0] - a[0] * b[2],
+                    a[0] * b[1] - a[1] * b[0]
+                ];
+            }
+            
+            dot(a, b) {
+                return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            }
+            
+            render() {
+                this.gl.clearColor(0, 0, 0, 1);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+                
+                // Update shooting stars
+                this.updateShootingStars();
+                
+                this.gl.disable(this.gl.DEPTH_TEST);
+                this.gl.useProgram(this.backgroundProgram);
+                
+                const backgroundUniforms = {
+                    time: this.gl.getUniformLocation(this.backgroundProgram, 'time'),
+                    nebulaVisibility: this.gl.getUniformLocation(this.backgroundProgram, 'nebulaVisibility'),
+                    nebulaSize: this.gl.getUniformLocation(this.backgroundProgram, 'nebulaSize')
+                };
+                
+                const backgroundAttributes = {
+                    position: this.gl.getAttribLocation(this.backgroundProgram, 'position')
+                };
+                
+                this.gl.uniform1f(backgroundUniforms.time, this.time);
+                this.gl.uniform1f(backgroundUniforms.nebulaVisibility, this.nebulaVisibility);
+                this.gl.uniform1f(backgroundUniforms.nebulaSize, this.nebulaSize);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.backgroundBuffer);
+                this.gl.enableVertexAttribArray(backgroundAttributes.position);
+                this.gl.vertexAttribPointer(backgroundAttributes.position, 2, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+                
+                this.gl.enable(this.gl.DEPTH_TEST);
+                
+                const aspect = this.canvas.width / this.canvas.height;
+                const projectionMatrix = this.perspective(Math.PI / 4, aspect, 0.1, 100);
+                
+                const cameraDistance = 5;
+                const viewMatrix = this.lookAt([0, 1, cameraDistance], [0, 0, 0], [0, 1, 0]);
+                
+                const rotationX = this.mouseY * 0.15 * this.mouseInteractivity;
+                const rotationY = this.mouseX * 0.15 * this.mouseInteractivity;
+                const modelMatrix = this.rotateXY(this.createMatrix4(), rotationX, rotationY);
+                
+                this.gl.useProgram(this.particleProgram);
+                
+                const particleUniforms = {
+                    projection: this.gl.getUniformLocation(this.particleProgram, 'projection'),
+                    view: this.gl.getUniformLocation(this.particleProgram, 'view'),
+                    model: this.gl.getUniformLocation(this.particleProgram, 'model'),
+                    time: this.gl.getUniformLocation(this.particleProgram, 'time'),
+                    mouse: this.gl.getUniformLocation(this.particleProgram, 'mouse'),
+                    mouseInteractivity: this.gl.getUniformLocation(this.particleProgram, 'mouseInteractivity')
+                };
+                
+                const particleAttributes = {
+                    position: this.gl.getAttribLocation(this.particleProgram, 'position'),
+                    size: this.gl.getAttribLocation(this.particleProgram, 'size'),
+                    alpha: this.gl.getAttribLocation(this.particleProgram, 'alpha')
+                };
+                
+                this.gl.uniformMatrix4fv(particleUniforms.projection, false, projectionMatrix);
+                this.gl.uniformMatrix4fv(particleUniforms.view, false, viewMatrix);
+                this.gl.uniformMatrix4fv(particleUniforms.model, false, modelMatrix);
+                this.gl.uniform1f(particleUniforms.time, this.time);
+                this.gl.uniform2f(particleUniforms.mouse, this.mouseX, this.mouseY);
+                this.gl.uniform1f(particleUniforms.mouseInteractivity, this.mouseInteractivity);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+                this.gl.enableVertexAttribArray(particleAttributes.position);
+                this.gl.vertexAttribPointer(particleAttributes.position, 3, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.sizeBuffer);
+                this.gl.enableVertexAttribArray(particleAttributes.size);
+                this.gl.vertexAttribPointer(particleAttributes.size, 1, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
+                this.gl.enableVertexAttribArray(particleAttributes.alpha);
+                this.gl.vertexAttribPointer(particleAttributes.alpha, 1, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.drawArrays(this.gl.POINTS, 0, this.numParticles);
+                
+                this.gl.useProgram(this.lineProgram);
+                
+                const lineUniforms = {
+                    projection: this.gl.getUniformLocation(this.lineProgram, 'projection'),
+                    view: this.gl.getUniformLocation(this.lineProgram, 'view'),
+                    model: this.gl.getUniformLocation(this.lineProgram, 'model'),
+                    time: this.gl.getUniformLocation(this.lineProgram, 'time'),
+                    mouse: this.gl.getUniformLocation(this.lineProgram, 'mouse'),
+                    mouseInteractivity: this.gl.getUniformLocation(this.lineProgram, 'mouseInteractivity')
+                };
+                
+                const lineAttributes = {
+                    position: this.gl.getAttribLocation(this.lineProgram, 'position'),
+                    distance: this.gl.getAttribLocation(this.lineProgram, 'distance')
+                };
+                
+                this.gl.uniformMatrix4fv(lineUniforms.projection, false, projectionMatrix);
+                this.gl.uniformMatrix4fv(lineUniforms.view, false, viewMatrix);
+                this.gl.uniformMatrix4fv(lineUniforms.model, false, modelMatrix);
+                this.gl.uniform1f(lineUniforms.time, this.time);
+                this.gl.uniform2f(lineUniforms.mouse, this.mouseX, this.mouseY);
+                this.gl.uniform1f(lineUniforms.mouseInteractivity, this.mouseInteractivity);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.lineBuffer);
+                this.gl.enableVertexAttribArray(lineAttributes.position);
+                this.gl.vertexAttribPointer(lineAttributes.position, 3, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.lineDistanceBuffer);
+                this.gl.enableVertexAttribArray(lineAttributes.distance);
+                this.gl.vertexAttribPointer(lineAttributes.distance, 1, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.drawArrays(this.gl.LINES, 0, this.lineCount);
+                
+                this.gl.useProgram(this.spaceParticleProgram);
+                
+                const spaceParticleUniforms = {
+                    projection: this.gl.getUniformLocation(this.spaceParticleProgram, 'projection'),
+                    view: this.gl.getUniformLocation(this.spaceParticleProgram, 'view'),
+                    model: this.gl.getUniformLocation(this.spaceParticleProgram, 'model'),
+                    time: this.gl.getUniformLocation(this.spaceParticleProgram, 'time'),
+                    mouse: this.gl.getUniformLocation(this.spaceParticleProgram, 'mouse'),
+                    mouseInteractivity: this.gl.getUniformLocation(this.spaceParticleProgram, 'mouseInteractivity')
+                };
+                
+                const spaceParticleAttributes = {
+                    position: this.gl.getAttribLocation(this.spaceParticleProgram, 'position'),
+                    size: this.gl.getAttribLocation(this.spaceParticleProgram, 'size'),
+                    alpha: this.gl.getAttribLocation(this.spaceParticleProgram, 'alpha'),
+                    velocity: this.gl.getAttribLocation(this.spaceParticleProgram, 'velocity')
+                };
+                
+                this.gl.uniformMatrix4fv(spaceParticleUniforms.projection, false, projectionMatrix);
+                this.gl.uniformMatrix4fv(spaceParticleUniforms.view, false, viewMatrix);
+                this.gl.uniformMatrix4fv(spaceParticleUniforms.model, false, modelMatrix);
+                this.gl.uniform1f(spaceParticleUniforms.time, this.time);
+                this.gl.uniform2f(spaceParticleUniforms.mouse, this.mouseX, this.mouseY);
+                this.gl.uniform1f(spaceParticleUniforms.mouseInteractivity, this.mouseInteractivity);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticlePositionBuffer);
+                this.gl.enableVertexAttribArray(spaceParticleAttributes.position);
+                this.gl.vertexAttribPointer(spaceParticleAttributes.position, 3, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleSizeBuffer);
+                this.gl.enableVertexAttribArray(spaceParticleAttributes.size);
+                this.gl.vertexAttribPointer(spaceParticleAttributes.size, 1, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleAlphaBuffer);
+                this.gl.enableVertexAttribArray(spaceParticleAttributes.alpha);
+                this.gl.vertexAttribPointer(spaceParticleAttributes.alpha, 1, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.spaceParticleVelocityBuffer);
+                this.gl.enableVertexAttribArray(spaceParticleAttributes.velocity);
+                this.gl.vertexAttribPointer(spaceParticleAttributes.velocity, 3, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.drawArrays(this.gl.POINTS, 0, this.numSpaceParticles);
+                
+                this.gl.disable(this.gl.DEPTH_TEST);
+                this.gl.useProgram(this.grainProgram);
+                
+                const grainUniforms = {
+                    time: this.gl.getUniformLocation(this.grainProgram, 'time'),
+                    resolution: this.gl.getUniformLocation(this.grainProgram, 'resolution'),
+                    grainIntensity: this.gl.getUniformLocation(this.grainProgram, 'grainIntensity')
+                };
+                
+                const grainAttributes = {
+                    position: this.gl.getAttribLocation(this.grainProgram, 'position')
+                };
+                
+                this.gl.uniform1f(grainUniforms.time, this.time);
+                this.gl.uniform2f(grainUniforms.resolution, this.canvas.width, this.canvas.height);
+                this.gl.uniform1f(grainUniforms.grainIntensity, this.grainIntensity);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.grainBuffer);
+                this.gl.enableVertexAttribArray(grainAttributes.position);
+                this.gl.vertexAttribPointer(grainAttributes.position, 2, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE);
+                this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+                
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+            }
+            
+            animate() {
+                this.time += 0.016;
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+        
+        window.addEventListener('load', () => {
+            new ConstellationStarfield();
+        });
+    </script>
+</body>
+</html>

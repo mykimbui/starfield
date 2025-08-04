@@ -90,6 +90,24 @@
             varying float v_alpha;
             varying float v_twinkle;
             
+            // Noise function
+            float random(vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+            
+            float noise(vec2 st) {
+                vec2 i = floor(st);
+                vec2 f = fract(st);
+                
+                float a = random(i);
+                float b = random(i + vec2(1.0, 0.0));
+                float c = random(i + vec2(0.0, 1.0));
+                float d = random(i + vec2(1.0, 1.0));
+                
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+            }
+            
             void main() {
                 gl_Position = u_projectionMatrix * u_viewMatrix * vec4(a_position, 1.0);
                 
@@ -97,8 +115,9 @@
                 float distance = length(a_position);
                 gl_PointSize = a_size * (200.0 / distance);
                 
-                // Twinkling effect
-                float twinkle = 0.7 + 0.3 * sin(u_time * a_twinkle + a_position.x + a_position.y);
+                // Twinkling effect with noise
+                float noiseValue = noise(a_position.xy * 0.01 + u_time * 0.1);
+                float twinkle = 0.6 + 0.4 * sin(u_time * a_twinkle + a_position.x + a_position.y + noiseValue * 2.0);
                 
                 v_color = a_color;
                 v_alpha = min(1.0, a_size / 3.0) * twinkle;
@@ -112,6 +131,25 @@
             
             varying vec3 v_color;
             varying float v_alpha;
+            varying float v_twinkle;
+            
+            // Noise function for fragment shader
+            float random(vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+            
+            float noise(vec2 st) {
+                vec2 i = floor(st);
+                vec2 f = fract(st);
+                
+                float a = random(i);
+                float b = random(i + vec2(1.0, 0.0));
+                float c = random(i + vec2(0.0, 1.0));
+                float d = random(i + vec2(1.0, 1.0));
+                
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+            }
             
             void main() {
                 vec2 center = gl_PointCoord - vec2(0.5);
@@ -119,11 +157,15 @@
                 
                 if (dist > 0.5) discard;
                 
-                // Create star spikes
+                // Create star spikes with noise variation
                 float angle = atan(center.y, center.x);
                 float spike1 = abs(cos(angle * 2.0)); // 4-pointed star
                 float spike2 = abs(cos(angle * 3.0)); // 6-pointed overlay
                 float spikes = max(spike1 * 0.7, spike2 * 0.3);
+                
+                // Add noise to spikes
+                float spikeNoise = noise(center * 10.0) * 0.3;
+                spikes = spikes + spikeNoise;
                 
                 // Bright center with gradual falloff
                 float centerGlow = 1.0 - smoothstep(0.0, 0.3, dist);
@@ -132,10 +174,10 @@
                 // Combine center glow with spikes
                 float brightness = centerGlow + outerGlow * spikes * 0.6;
                 
-                // Add some sparkle variation
-                float sparkle = sin(dist * 20.0) * 0.1 + 0.9;
+                // Add noise-based sparkle variation
+                float sparkle = sin(dist * 20.0 + noise(center * 5.0) * 2.0) * 0.15 + 0.85;
                 
-                float alpha = brightness * v_alpha * sparkle;
+                float alpha = brightness * v_alpha * sparkle * v_twinkle;
                 gl_FragColor = vec4(v_color * (0.8 + brightness * 0.4), alpha);
             }
         `;
@@ -226,8 +268,8 @@
                 }
                 sizes.push(size);
                 
-                // Random twinkle rate
-                twinkles.push(Math.random() * 3 + 1);
+                // Random twinkle rate with noise variation
+                twinkles.push(Math.random() * 4 + 0.5); // More variation in twinkle rates
                 
                 // Random color
                 if (useColors) {
@@ -249,11 +291,12 @@
                     }
                 }
                 
-                // Random velocity (mostly forward)
+                // Random velocity with noise-based variation
+                const noiseOffset = Math.random() * 0.3;
                 velocities.push(
-                    (Math.random() - 0.5) * 0.2,
-                    (Math.random() - 0.5) * 0.2,
-                    Math.random() * 3 + 2
+                    (Math.random() - 0.5) * 0.3 + noiseOffset * 0.1,
+                    (Math.random() - 0.5) * 0.3 + noiseOffset * 0.1,
+                    Math.random() * 3 + 2 + noiseOffset * 0.5
                 );
             }
         }
