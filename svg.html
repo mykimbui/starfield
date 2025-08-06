@@ -60,27 +60,27 @@
     <script>
         // Configuration
         const controlsConfig = {
-            magnetStrength: 0.05,
+            magnetStrength: 0.005,
             particleSize:1,
-            returnSpeed: 0.005,
+            returnSpeed: 0.0005,
             spreadDistance: 1000,
             effectRadius: 160,
             windDirection: 0,
-            windStrength: 0.0005,
-            buoyancy: 0.005,
-            brownianStrength: 0.005,
-            turbulence: 0.002,
-            driftIndependence: 0.02,
-            inertialDamping: 0.98,
-            forceFade: 0.995,
-            mouseForce: 0.4,
+            windStrength: 0.00002,
+            buoyancy: 0.0002,
+            brownianStrength: 0.0001,
+            turbulence: 0.00005,
+            driftIndependence: 0.0005,
+            inertialDamping: 0.998,
+            forceFade: 0.9995,
+            mouseForce: 0.05,
             syncOffset: 1.0,
-            noiseOneMultiplier: 0.002,
-            noiseTwoMultiplier: 0.001,
-            noiseThreeMultiplier: 0.0005,
-            reactionDiversity: 0.1,
-            accelerationSmooth: 8.0,
-            flowCoherence: 0.95
+            noiseOneMultiplier: 0.00005,
+            noiseTwoMultiplier: 0.00002,
+            noiseThreeMultiplier: 0.00001,
+            reactionDiversity: 0.01,
+            accelerationSmooth: 30.0,
+            flowCoherence: 0.995
         };
 
         // Vertex Shader (from the actual component)
@@ -124,9 +124,9 @@
                 
                 gl_Position = vec4(pPosition, 0.0, 1.0);
                 
-                float personalBreathing = sin(uTime * 0.00002 + phase) * sensitivity; // Ultra-slow breathing
-                float sizeNoise = noise(originalPosition.xy * 0.001 + uTime * 0.00005) - 0.5; // Ultra-gentle noise
-                float dynamicSize = uParticleSize + ((sizeNoise + personalBreathing) * 0.02); // Ultra-minimal variation
+                float personalBreathing = sin(uTime * 0.000005 + phase) * sensitivity; // Ultra-slow breathing
+                float sizeNoise = noise(originalPosition.xy * 0.0002 + uTime * 0.00001) - 0.5; // Ultra-gentle noise
+                float dynamicSize = uParticleSize + ((sizeNoise + personalBreathing) * 0.005); // Ultra-minimal variation
                 
                 // Reduce visual jitter when mouse is near (this would need to be passed as uniform)
                 // For now, we'll keep the visual effects consistent
@@ -676,25 +676,29 @@
                     const isNearMouse = mouseDist < controlsConfig.effectRadius;
                     
                     // Reduce forces when mouse is hovering
-                    const forceMultiplier = isNearMouse ? 0.1 : 1.0; // 90% reduction when hovering
+                    const forceMultiplier = isNearMouse ? 0.01 : 0.0; // 99% reduction when hovering, 100% reduction when not hovering (static)
                     
-                    particle.vx += windX * atmosphericSensitivity * 0.2 * forceMultiplier; // Ultra-minimal wind effect
-                    particle.vy += windY * atmosphericSensitivity * 0.2 * forceMultiplier;
-                    
-                    // Buoyancy - ultra-minimal
-                    particle.vy -= controlsConfig.buoyancy * particle.sensitivity * 0.02 * forceMultiplier; // Ultra-minimal effect
-                    
-                    // Brownian motion - ultra-smooth, reduced when hovering
-                    const brownianScale = controlsConfig.brownianStrength * particle.sensitivity * 0.05 * forceMultiplier; // Ultra-minimal
-                    const turbulenceScale = controlsConfig.turbulence * 0.02 * forceMultiplier; // Ultra-minimal
-                    particle.vx += (Math.random() - 0.5) * (brownianScale + turbulenceScale) * 0.02; // Ultra-minimal random movement
-                    particle.vy += (Math.random() - 0.5) * (brownianScale + turbulenceScale) * 0.02;
-                    
-                    // Independent drift - ultra-smooth, reduced when hovering
-                    const driftStrength = controlsConfig.driftIndependence * 0.02 * forceMultiplier; // Ultra-minimal drift
-                    const organicFlow = Math.sin(personalTime * 0.000005 + particle.personalDrift) * driftStrength; // Ultra-slow oscillation
-                    particle.vx += Math.cos(personalTime * 0.000005 + particle.personalDrift) * organicFlow * 0.02; // Ultra-minimal effect
-                    particle.vy += Math.sin(personalTime * 0.0000075 + particle.personalDrift) * organicFlow * 0.02;
+                    // Only apply forces if mouse is hovering
+                    if (isNearMouse) {
+                        particle.vx += windX * atmosphericSensitivity * 0.005 * forceMultiplier; // Ultra-minimal wind effect
+                        particle.vy += windY * atmosphericSensitivity * 0.005 * forceMultiplier;
+                        
+                        // Buoyancy - ultra-minimal
+                        particle.vy -= controlsConfig.buoyancy * particle.sensitivity * 0.0005 * forceMultiplier; // Ultra-minimal effect
+                        
+                        // Brownian motion - almost eliminated, reduced when hovering
+                        const brownianScale = controlsConfig.brownianStrength * particle.sensitivity * 0.001 * forceMultiplier; // Almost eliminated
+                        const turbulenceScale = controlsConfig.turbulence * 0.0005 * forceMultiplier; // Almost eliminated
+                        particle.vx += (Math.random() - 0.5) * (brownianScale + turbulenceScale) * 0.0005; // Almost no random movement
+                        particle.vy += (Math.random() - 0.5) * (brownianScale + turbulenceScale) * 0.0005;
+                        
+                        // Independent drift - almost eliminated, reduced when hovering
+                        const driftStrength = controlsConfig.driftIndependence * 0.0005 * forceMultiplier; // Almost eliminated
+                        const organicFlow = Math.sin(personalTime * 0.0000002 + particle.personalDrift) * driftStrength; // Ultra-slow oscillation
+                        particle.vx += Math.cos(personalTime * 0.0000002 + particle.personalDrift) * organicFlow * 0.0005; // Almost no effect
+                        particle.vy += Math.sin(personalTime * 0.0000003 + particle.personalDrift) * organicFlow * 0.0005;
+                    }
+                    // When not hovering, no forces are applied - particles remain static
                     
                     // Return force - balanced for image-contained movement  
                     if (controlsConfig.returnSpeed > 0) {
@@ -727,14 +731,14 @@
                     
                     // Damping - ultra-strong for smooth movement, enhanced when hovering
                     const personalDamping = controlsConfig.inertialDamping * particle.mass;
-                    const baseResistance = controlsConfig.forceFade * (1.0 - personalDamping * 0.25); // Ultra-strong damping effect
-                    const hoverResistance = isNearMouse ? 0.99 : baseResistance; // Extra damping when hovering
+                    const baseResistance = controlsConfig.forceFade * (1.0 - personalDamping * 0.55); // Ultra-strong damping effect
+                    const hoverResistance = isNearMouse ? 0.998 : 0.999; // Extra damping when hovering, almost static when not hovering
                     
                     particle.vx *= hoverResistance;
                     particle.vy *= hoverResistance;
                     
                     // Velocity limits - ultra-low for smooth movement
-                    const maxVelocity = (20 + controlsConfig.spreadDistance * 0.002) / particle.mass; // Ultra-low velocity limit
+                    const maxVelocity = isNearMouse ? (5 + controlsConfig.spreadDistance * 0.0005) / particle.mass : 0.1; // Almost static when not hovering
                     const currentSpeed = Math.sqrt(particle.vx * particle.vx + particle.vy * particle.vy);
                     if (currentSpeed > maxVelocity) {
                         const scale = maxVelocity / currentSpeed;
@@ -768,7 +772,7 @@
                         particle.currentY = validPos.y;
                         
                         // Add ultra-minimal randomness to prevent particles getting stuck, reduced when hovering
-                        const randomMultiplier = isNearMouse ? 0.02 : 0.1; // Much less randomness when hovering
+                        const randomMultiplier = isNearMouse ? 0.001 : 0.0; // No randomness when not hovering (static)
                         particle.vx += (Math.random() - 0.5) * randomMultiplier;
                         particle.vy += (Math.random() - 0.5) * randomMultiplier;
                     }
